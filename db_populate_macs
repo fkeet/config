@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#Load our defaults
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+fi
+
+#A few local variables
+KEY="DHCPDISCOVER"
+MAC_REG_EX="^..:..:..:..:..:.."
+
+#Get our list, and feed it into the db
+$GR "$KEY" "$SYSLOG"|$AW '{print $8}'|$GR $MAC_REG_EX|$ST -u|while read MAC;do
+	MAC=`$EC $MAC|$TR a-z A-Z`
+	$EC "INSERT INTO ${DBNAME}.${TABLE} (mac,lastseen) VALUES ('${MAC}',NOW()) ON DUPLICATE KEY UPDATE lastseen=NOW()"|$SQL
+done

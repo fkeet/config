@@ -1,0 +1,42 @@
+#!/bin/bash
+
+#Load defaults
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+else
+	echo "Missing file ($HEADER). Stopping."
+	exit 1;
+fi
+
+###
+#Override variables here
+###
+TMP_FILE="/tmp/$(basename $0).$(date +%Y%m%d%H%M).tmp"
+
+###
+#Declare functions here
+###
+
+###
+#Main script start
+###
+
+if [ "$1" == "" ];then
+	$EC "Missing parameter"
+	$EC "Use: $(basename $0) <class>"
+	exit 1;
+fi
+
+
+$GR -i "$1" $CLASSFILE | $AW '{print $3}'|$SD -e 's/1://' -e 's/;//'|while read mac;
+do
+	$GM host $mac >> "$TMP_FILE"
+done
+
+if [ -f "$TMP_FILE" ];then
+	$CT "$TMP_FILE"|$ST -u
+	$RM "$TMP_FILE"
+else
+	$EC "No one"
+fi

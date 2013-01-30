@@ -1,0 +1,96 @@
+#!/bin/bash
+#Wrapper script to ease admin of users
+#Removes user from /root/lists/full_access. Generates dhcpd.classes. Restart dhcpd. Restart full access
+#################################################################
+# Changelog
+#################################################################
+#	FRED
+#	060413
+#		* (doacl):Convert iptables command to use acon script
+#	Fred	060607
+#	*	(doacl):Modified gathermacs calls to include full path to script
+#################################################################
+CLASSFILE="/etc/dhcp3/dhcpd.classes";
+FULLLIST="/root/lists/full_access";
+MAC="";
+HEADER="/root/scripts/scriptheader";
+AC="/root/scripts/acon"
+NOCLASS="illegal"
+
+if [ -f $HEADER ];then
+	. $HEADER
+else
+	echo "Missing header"
+	exit 3;
+fi
+
+SUCCESS=0;
+ML="/usr/bin/mail"
+SUBJECT="[Access]";
+CLASS="unauth";
+
+function mail_admin(){
+	SUCCESS=1;
+	if [ "$1" == "" ];then
+		return;
+	fi;
+
+	if [ $SUCCESS -eq 1 ];then
+		SUBJECT="$SUBJECT $CLASS,$1,`date +%Y-%m-%d' '%H:%M`"
+		$EC $SUBJECT|$ML -s "$SUBJECT" -a "From:Tigger<root@fns.co.za>" $ADMIN_EMAIL
+	fi
+}
+
+function dodhcpd(){
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Modifying entry for ${1} in $CLASSFILE to illegal.${R}";fi
+	#First see if we need to remove a entry from the class file - to save time with restarting the dhcp server
+	$GR -i ${MAC} ${CLASSFILE} &> /dev/null
+	if [ $? -eq 0 ];then
+		$GR -i -v ${MAC} $CLASSFILE>/tmp/tmp.txt
+		#$EC "subclass \"${NOCLASS}\" 1:${MAC};" >>/tmp/tmp.txt
+		$MV -f /tmp/tmp.txt $CLASSFILE
+		$EC $EC_PARM "${S_INFO}Restarting dhcpd with new dhcpd.classes${R}"
+		#/etc/init.d/dhcpd restart
+		#/etc/init.d/dhcp3-server restart
+                /etc/init.d/isc-dhcp-server restart
+	else
+		$EC $EC_PARM "${S_INFO}No such entry in dhcp.${R}"
+	fi
+}
+
+function doacl(){
+	$AC remove $1
+	$EC $EC_PARM "${S_INFO}Removing access for ${1} from firewall.${R}"
+}
+
+if [ $1 ];then
+
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Checking $FULLLIST for a previous entry${R}";fi
+	$GR -i $1 $FULLLIST &> /dev/null
+	if [ $? -eq 0 ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found a previous entry for $1 in $FULLLIST. Removing it.${R}";fi
+		$GR -i -v $1 $FULLLIST > /tmp/tmp.txt
+		$MV -f /tmp/tmp.txt $FULLLIST &> /dev/null
+	fi
+
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Looking for MAC of $1 in database${R}";fi
+	MAC=`/root/scripts/gathermacs mac $1`
+	if [ $MAC ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found MAC for $1 in database${R}";fi
+		dodhcpd $@;
+		doacl $@;
+		mail_admin $@;
+	else
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Did not find a MAC for $1 in database. Trying to find a MAC for ${1}.lan in database${R}";fi
+		MAC=`/root/scripts/gathermacs mac ${1}.lan`
+		if [ $MAC ];then
+			dodhcpd $@;
+			doacl $@;
+			mail_admin $@;
+		else
+			$EC $EC_PARM "No database entry for $1 or ${1}.lan";
+		fi
+	fi
+else
+	$EC $EC_PARM "${S_ERR}No parameters. Please provide a hostname as parameter${R}"
+fi

@@ -1,0 +1,185 @@
+#!/bin/bash
+IPT="/sbin/iptables"
+FW_CHAIN="loc2net"
+PREROUTING="PREROUTING"
+LOC_NET="192.168.0.0/16"
+
+$IPT -D $FW_CHAIN -p tcp --dport 995 -j ACCEPT &>/dev/null
+$IPT -I $FW_CHAIN -p tcp --dport 995 -j ACCEPT
+
+#$IPT -D $PREROUTING -t nat -p tcp --dport 25 -j REDIRECT --to-port 25 &> /dev/null
+#$IPT -I $PREROUTING -t nat -p tcp --dport 25 -j REDIRECT --to-port 25 &> /dev/null
+
+$IPT -D $FW_CHAIN -s $LOC_NET -p tcp --dport 6112 -j ACCEPT &> /dev/null
+$IPT -I $FW_CHAIN -s $LOC_NET -p tcp --dport 6112 -j ACCEPT
+
+#Open all outgoing for miemie 00:16:76:59:9c:0f
+iptables -I INPUT -s 192.168.11.118 -i eth1 -j ACCEPT
+iptables -I FORWARD -s 192.168.11.118 -i eth1 -j ACCEPT
+
+
+# daniel-pc 00:15:b7:7e:65:64
+#UDP 27000 to 27015 inclusive (Game client traffic)
+#UDP 27015 to 27030 inclusive (Typically Matchmaking and HLTV)
+#TCP 27014 to 27050 inclusive (Steam downloads)
+#UDP 4380
+iptables -D loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p udp --dport 27000:27030 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p udp --dport 27000:27030 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p tcp --dport 27014:27050 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p tcp --dport 27014:27050 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p udp --dport 4380 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:15:b7:7e:65:64 -p udp --dport 4380 -j ACCEPT
+
+# Warcraft for Viresh-ULD102- e0:cb:4e:ab:23:0e
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 1120 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 1120 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 1119 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 1119 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 3724 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 3724 -j ACCEPT
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p udp --dport 3724 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p udp --dport 3724 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 4000 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 4000 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 6112:6114 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 6112:6114 -j ACCEPT
+
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p udp --dport 6112 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p udp --dport 6112 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 6881:6999 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source e0:cb:4e:ab:23:0e -p tcp --dport 6881:6999 -j ACCEPT
+
+#Arno 00:1c:25:5f:15:f0
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 443 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 443 -j ACCEPT
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 2099 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 2099 -j ACCEPT
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 5222 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 5222 -j ACCEPT
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 5223 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 5223 -j ACCEPT
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p udp --dport 5000:5200 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p udp --dport 5000:5200 -j ACCEPT
+#iptables -D loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 8393 -j ACCEPT &>/dev/null
+#iptables -I loc2net -m mac --mac-source 00:1c:25:5f:15:f0 -p tcp --dport 8393 -j ACCEPT
+
+#Inserted by joe 10-05-2011 to allow ip ranges through firewall as TEMP
+##Temporary bypass until we get the gathermacs database restored.
+
+#VM53 d0:27:88:5e:b2:f9
+iptables -D loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p udp --dport 5000:5500 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p udp --dport 5000:5500 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p udp --dport 8393:8400 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p udp --dport 8393:8400 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 2099 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 2099 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 5223 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 5223 -j ACCEPT
+ 
+iptables -D loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 5222 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source d0:27:88:5e:b2:f9 -p tcp --dport 5222 -j ACCEPT
+
+#Redirect to squid
+iptables -D PREROUTING -t nat -s 192.168.10.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128 &>/dev/null
+iptables -D PREROUTING -t nat -s 192.168.11.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128 &>/dev/null
+iptables -D PREROUTING -t nat -s 192.168.12.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128 &>/dev/null
+iptables -D PREROUTING -t nat -s 192.168.13.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128 &>/dev/null
+#iptables -I PREROUTING -t nat -s 192.168.10.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128
+#iptables -I PREROUTING -t nat -s 192.168.11.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128
+#iptables -I PREROUTING -t nat -s 192.168.12.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128
+#iptables -I PREROUTING -t nat -s 192.168.13.0/24 -p tcp --dport 80 -j REDIRECT --to-port 3128
+
+#Accept connections to http,https,squid
+iptables -D INPUT -i eth1 -m multiport -s 192.168.10.0/24 -p tcp --dports http,http,3128 -j ACCEPT &>/dev/null
+iptables -D INPUT -i eth1 -m multiport -s 192.168.11.0/24 -p tcp --dports http,http,3128 -j ACCEPT &>/dev/null
+iptables -D INPUT -i eth1 -m multiport -s 192.168.12.0/24 -p tcp --dports http,http,3128 -j ACCEPT &>/dev/null
+iptables -D INPUT -i eth1 -m multiport -s 192.168.13.0/24 -p tcp --dports http,http,3128 -j ACCEPT &>/dev/null
+#iptables -I INPUT -i eth1 -m multiport -s 192.168.10.0/24 -p tcp --dports http,http,3128 -j ACCEPT
+#iptables -I INPUT -i eth1 -m multiport -s 192.168.11.0/24 -p tcp --dports http,http,3128 -j ACCEPT
+#iptables -I INPUT -i eth1 -m multiport -s 192.168.12.0/24 -p tcp --dports http,http,3128 -j ACCEPT
+#iptables -I INPUT -i eth1 -m multiport -s 192.168.13.0/24 -p tcp --dports http,http,3128 -j ACCEPT
+
+#Forward https to target server
+iptables -I FORWARD -i eth1 -o eth0 -p tcp --dport https -j ACCEPT
+iptables -D FORWARD -i eth1 -o eth0 -p tcp --dport https -j ACCEPT &>/dev/null
+
+#Allow pop collection for miemie- 00:16:76:59:9C:0F
+iptables -I INPUT -i eth1 -m mac --mac-source 00:16:76:59:9C:0F -p tcp --dport 110 -j ACCEPT
+iptables -I FORWARD -p tcp --dport 110 -o eth0 -i eth1 -j ACCEPT
+iptables -I INPUT -i eth1 -m mac --mac-source 00:16:76:59:9C:0F -p tcp --dport 25 -j ACCEPT
+iptables -I FORWARD -p tcp --dport 25 -o eth0 -i eth1 -j ACCEPT
+
+#Enable addvert page
+iptables -D PREROUTING -t nat -s 192.168.3.0/24 -j DNAT --to-destination 192.168.3.5 &> /dev/null
+iptables -A PREROUTING -t nat -s 192.168.3.0/24 -j DNAT --to-destination 192.168.3.5
+
+#Enable proxy for valid users
+iptables -D INPUT -i eth1 -m multiport -s 192.168.0.0/16 -p tcp --dport http,https,3128 -j full_access
+iptables -I INPUT -i eth1 -m multiport -s 192.168.0.0/16 -p tcp --dport http,https,3128 -j full_access
+
+#Andrew AKA702 Gaming - 00:1c:c0:a8:92:67
+#UDP
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 1500 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 1500 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3005 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3005 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3101 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3101 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3478 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 3478 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 4379 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 4379 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 4380 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 4380 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 28960 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 28960 -j ACCEPT
+
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 27000:27030 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 27000:27030 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 5000:5500 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p udp --dport 5000:5500 -j ACCEPT
+#TCP
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 27014:27050 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 27014:27050 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 2099 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 2099 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 5222 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 5222 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 5223 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 5223 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 8088 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 8088 -j ACCEPT
+
+iptables -D loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 8393:8400 -j ACCEPT &>/dev/null
+iptables -I loc2net -m mac --mac-source 00:1c:c0:a8:92:67 -p tcp --dport 8393:8400 -j ACCEPT
+
+iptables -D loc2net -d 196.220.41.23 -p tcp --dport 587 -j ACCEPT &> /dev/null
+iptables -I loc2net -d 196.220.41.23 -p tcp --dport 587 -j ACCEPT
+
+ iptables -D loc2net -d 196.220.41.23 -p tcp --dport 25 -j ACCEPT &> /dev/null
+ iptables -I loc2net -d 196.220.41.23 -p tcp --dport 25 -j ACCEPT
+

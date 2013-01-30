@@ -1,0 +1,75 @@
+#!/bin/bash
+######################################################################################################
+# Changelog
+######################################################################################################
+#FRED 0412
+#	Create IMGDIR if not existing
+#	Fred 060421
+#	* ():Added sourcing of scriptheader
+#	*	():Added mac lookup from db
+#	*	():Changed img tags to href tags, too many pics on one page
+#	* ():Added stylesheet to page
+#	* ():Added br tag after first two images
+# Fred 060509
+#	*	():Added check for existance of hostname in database - no entry in db, no entry in page.
+#	*	():Added border to combined graphs
+# Fred 060914
+#	*	():Added mac list in stead of drawing every one in db
+######################################################################################################
+
+HOSTLIST="/root/lists/full_access"
+WEBROOT="/var/www"
+IMGDIR="rrdgraphs"
+ROOT="/root/rrds"
+E_MISSING_DIRECTORY_ROOT=11;
+E_MISSING_FILE_HEADER=1;
+HEADER="/root/scripts/scriptheader"
+GM="/root/scripts/gathermacs"
+
+if [ -f "$HEADER" ];then
+				. "$HEADER"
+else
+				echo "Missing header file. Closing."
+				exit $E_MISSING_FILE_HEADER
+fi
+
+if [ ! -d "$ROOT" ];then
+	echo "No source folder. Run parse_iptraf_log first"
+	exit $E_MISSING_DIRECTORY_ROOT;
+fi
+
+mkdir -p $WEBROOT/$IMGDIR
+
+echo "<html>
+<head>
+<link REL=\"stylesheet\" HREF=\"/css/style3.css\" TYPE=\"text/css\">
+<link rel=\"shortcut icon\" href=\"favicon.ico\" type=\"image/x-icon\">
+</head>
+					
+<body>
+	<span id="top_content">
+	<span class="img_obj"><img src=\"${IMGDIR}/in.png\" style="border:1px solid black"/><span class="img_title">Traffic to MAC</span></span>
+	<span class="img_obj"><img src=\"${IMGDIR}/out.png\" style="border:1px solid black"/><span class="img_title">Traffic from MAC</span></span>
+	</span><span id="middle_content">
+	"
+
+for file in `ls ${ROOT}/*.rrd`;do
+	BN=`basename ${file}`;
+	BN_NOEXT=`$EC $BN|$SD -e 's/.rrd//'`
+	MAC=`$EC $BN_NOEXT|$SD -e 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1:\2:\3:\4:\5:\6/'`
+	HOST=`$GM host $MAC|$TR [A-Z] [a-z]`
+	if [ "$HOST" ];then
+		$GR -i $HOST $HOSTLIST &> /dev/null
+		if [ $? -eq 0 ];then
+			/root/scripts/parse_iptraf_log draw $file > /dev/stderr
+			if [ $? -eq 0 ];then
+				echo "<span class="img_obj"><img src=\"${IMGDIR}/${BN}.png\" alt=\"${HOST}\"/><br/><span class="img_title">${HOST}</span></span>"
+			fi
+		fi
+	else
+		echo "<span class="img_obj"><img src=\"${IMGDIR}/${BN}.png\" alt=\"${BN_NOEXT}\"/></br><span class="img_title">${BN_NOEXT}</span></span>">/dev/null
+	fi
+done
+
+echo "</span></body>
+</html>"

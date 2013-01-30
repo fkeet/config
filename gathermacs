@@ -1,0 +1,650 @@
+#!/bin/bash
+#	Fred Keet
+#	Script to scan network and pick up MAC addresses, resolve them to hostnames, and enter them into a MySQL database
+#	20050526
+#	v0.0.1
+#	20060315
+#	Correct spelling mistake
+#
+# Error codes:
+#	2:	No config file
+#	1:	Lockfile exists
+# 0:	No errors
+#
+# Changelog
+#
+# Fred 060413
+#		Improved IP resolution in addone()
+#		Fixed bug in insert() where we added a bracket to the ip when we inserted it in the database
+#	Fred 060418
+#	*	(addone):Changed to make use of a ip passed as parameter to -s option
+#	*	(addone):Added check for hostname. If hostname defaults back to NULL then recast it from passed parameter
+#	* (addone):Added check for MAC, to prevent bad macs from ending up in the db. This 
+#							would have broken other stuff using the script and not checking the mac
+# Fred 060502
+#	*	(addone):Fixed bug where it won't use the specified ip and keeps looking for a network ip.
+#	*	(insert):Added support for passed variable to enable/disable printing of hostname. This is for cases
+#							where there is an existing host in the db under the same mac, but different hostname.
+# Fred 070929
+#	*	(clean_mac):Extended the last substitution regex in first assignment with check for [[:blank:]] to skip the match on a [[:digit:]] only.
+#			It seems to drop the first 0 in a MAC!
+
+HEADER="/root/scripts/scriptheader"
+E_MISSING_FILE_HEADER=2;
+E_CANT_FIND_MAC=12;
+
+if [ -f "$HEADER" ];then
+	. $HEADER
+else
+	echo "Missing header file. Closing ($HEADER)"
+	exit $E_MISSING_FILE_HEADER
+fi
+
+isVerbose=0;
+haveParameter=0;
+FILE_LEASES="/var/lib/dhcp/dhcpd.leases"
+BN=$(basename $0);
+TMP_FILE="/tmp/$BN.output.tmp"
+E_SIGINT=1;
+FUNCTION="Script to gather and process MACs from the arp tables and MAC database."
+
+##################################
+#CODE STARTS
+#Functions
+function clean()
+{
+	#Clean up
+	$RM -f ${LOCKFILE}
+	exit 0;
+}
+
+function change_user()
+{
+        if [ "$1" ] && [ "$2" ];then
+          query="update macs set hostname='$2' where hostname='$1'";
+          echo $query|$SQL
+          if [ $? -eq 0 ];then
+                echo 'Done';
+                exit 0;
+          else
+                echo 'Error';
+                exit 1;
+          fi
+        else
+          echo "I need 2 parameters for the 'change' command. 'change <name1> <name2>'";
+        fi
+}
+
+
+function help(){
+  $EC $EC_PARM "
+${B}NAME${R}
+	$BN - ${FUNCTION}
+${B}SYNOPSIS${R}
+	${B}${BN}${R} [OPTION]
+
+${B}DESCRIPTION${R}
+        ${B}-s, --single <hostname> <ip> <mac>
+	${B}-r, --remove <number>${R}
+		Remove an entry from the database
+	${B}-c, --clean${R}
+		Clean the lockfile. Don't use unless you are sure there are no running copies.
+	${B}name, host <mac>${R}
+		Resolve the supplied mac into a hostname from the database
+	${B}mac <hostname>${R}
+		Resolve the supplied hostname into a MAC from the database
+	${B}ip <hostname>${R}
+		Clean the lockfile. Don't use unless you are sure there are no running copies.
+	${B}-f, --find <hostname>${R}
+		Find an entry for the specified hostname from the database
+	${B}-h, --help${R}
+		Help
+	${B}-v, --verbose${R}
+		Increase verbosity of script. Can be used multiple times to increase verbosity
+	${B}show${R}
+		Display all entries in the database
+	${B}--no-dhcpd|--no-leases|--ignore-leases|--ignore-dhcpd|-il|-id|-nd|-nl)${R}
+		Ignore the dhcpd.leases file for IP resolution. Primarily intended for old setups.
+	${B}create_db${R}
+		Create a database. Intended for use on a new installation.
+	${B}destroy_db${R}
+		Destroy the database. Intended for debugging.
+	${B}--${R}
+		End of parameters.
+
+	${B}FILES${R}
+		Lockfile		: $LOCKFILE
+		Temporary output file	: $TMP_OUTPUT
+"
+}
+
+SigInt ()
+{
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Caught SIGINT signal, cleaning up${R}";
+				else $EC "SigInt";fi
+				$RM -f $LOCKFILE;
+				exit $E_SIGINT;
+}
+
+function show ()
+{
+	FIELDS="number as '#', first_hostname AS 'Hostname', lastseen AS 'Last_Day Last_Time', lastip AS 'IP', mac AS 'MAC', last_hostname AS 'Current_hostname'"
+	FIELDS_2="hostname AS 'Hostname',ping_min AS 'Min',ping_avg AS 'Avg',ping_max AS 'Max',ping_mdev AS 'MDev'"
+	if [ $byDate -eq 1 ];then
+		$EC "select $FIELDS from $TABLE ORDER BY date(lastseen);"|$SQL|$CL -t -c6
+	elif [ $byTime -eq 1 ];then
+		$EC "select $FIELDS from $TABLE ORDER BY time(lastseen);" | ${SQL}|$CL -t -c6
+	elif [ $byHost -eq 1 ];then
+		$EC "select $FIELDS from $TABLE ORDER BY hostname;" | ${SQL}|$CL -t -c6
+	elif [ $showPings -eq 1 ];then
+		$EC "select $FIELDS_2 from $TABLE ORDER BY ping_avg;" | ${SQL}|$CL -t -c5
+	else
+		$EC "select $FIELDS from $TABLE ORDER BY number;" | ${SQL}|$CL -t -c6
+	fi
+}
+
+function create_db ()
+{
+	$EC "create database ${DBNAME};use ${DBNAME}; create table macs (number INT AUTO_INCREMENT, key (number),hostname VARCHAR(25),INDEX host_index (hostname), lastseen DATETIME, lastip varchar(15), mac varchar(18), primary key (mac), unique (mac),indns TINYINT);grant all privileges on ${DBNAME}.* to ${USER}@'%';grant all privileges on ${DBNAME}.* to ${USER}@localhost;flush privileges;" | $ROOTSQL
+}
+
+function destroy_db (){
+	$EC "drop database ${DBNAME}" | $ROOTSQL
+}
+
+function clean_mac (){
+	#Do some cleaning on the mac
+	MAC=`$EC $MAC |$SD -e 's/[[:blank:]]*$//' -e 's/[[:digit:]]*[[:blank:]]//' -e 's/[[:blank:]][[:blank:]]*[[:digit:]]//'`
+	MAC=`$EC $MAC | $SD -e 's/\\n$//' -e 's/$//'`
+	$EC $MAC | $GR n &> /dev/null
+	if [ $? -eq 0 ];then
+		#Wat die hel?
+		MAC=`$EC $MAC | $SD -e 's/..$//'`
+		$EC $MAC | $GR n &> /dev/null;
+		if [ $? -eq 0 ];then
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Some weird stuff happening here!!! Can't purfy this MAC: ${MAC}${R}";fi
+		else
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Advanced purification needed for this MAC:${MAC}${R}";fi
+		fi
+	fi
+
+	#$EC $MAC
+
+	#Do some cleaning on the ip as well
+	if [ ! "$IP" ];then
+		IP="0.0.0.0";
+	fi
+	
+	$EC $HOST|$GR [[:digit:]]\.[[:digit:]]*\.[[:digit:]]*\.[[:digit:]] &> /dev/null
+	if [ $? -eq 0 ];then
+		IP=$HOST;
+		HOST="NULL";
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_WARN}Reset hostname, as we have an IP as hostname${R}";fi
+	fi
+	
+	IP=`$EC $IP|$SD -e 's/\\n.*//' -e 's/[[:alpha:]]*[[:blank:]]*$//' -e 's/^[[:alpha:]]*[[:blank:]]*//' -e 's/[[:blank:]][[:digit:]]*$//' -e 's/[[:blank:]][[:blank:]]*.*//'`
+	#$SD -e 's/\\n.*//' -e 's/$//' -e 's/^[[:alpha:]]*[[:blank:]]*//'`
+	
+	if [ ! "$HOST" ];then
+		HOST="NULL";
+	fi
+}
+
+function update ()
+{
+#	$EC "DELETE from macs where hostname='$HOST' and mac!='$MAC';" | ${SQL};
+#	$EC DELETED all $HOST with MACs not $MAC
+
+	clean_mac;
+
+	if [ "$MAC" ];then
+		if [ "${HOST}" ];then
+			#Have a hostname
+			$EC $HOST | $GR 192.168 &> /dev/null
+			if [ $? -eq 1 ] ;then
+				#only replace hostname if current hostname in database is 'NULL'
+				OLDHOSTNAME=`$EC "select hostname from macs where mac='${MAC}';"|${SQL}|$GR -v hostname|$GR -v ^$|$SD -e 's/^[[:blank:]]*//' -e 's/[[:blank:]]*$//'`
+				#Hostname is not an IP
+				if [ "${IP}" ];then
+					#Have an IP and hostname
+					if [ "$OLDHOSTNAME" == "NULL" ];then
+						$EC "UPDATE macs SET indns=${DNS},hostname='${HOST}',lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, Hostname:${OLDHOSTNAME}->${HOST}, IP:${IP}${R}";fi
+					else
+						$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, IP:${IP}, not hostname (${OLDHOSTNAME}->${HOST})${R}";fi
+					fi
+				else
+					#Dont have an IP. Have hostname
+					IP="0.0.0.0"
+					if [ "$OLDHOSTNAME" == "NULL" ];then
+						$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',hostname='${HOST}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, Hostname:${OLDHOSTNAME}->${HOST}, IP:${R}";fi
+					else
+						$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, not hostname (${OLDHOSTNAME}->${HOST}), IP:${R}";fi
+					fi
+				fi
+			else
+				#Hostname is an IP
+				if [ "${IP}" ];then
+					#Have IP and IP as hostname
+					$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+					if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of ${MAC}, IP:${IP}, no hostname${R}";fi
+				else
+					#Don't have IP and IP as hostname
+					IP=$HOST
+					$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+					if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, IP:${IP}, no hostname${R}";fi
+				fi
+			fi
+		else
+			#Don't have a hostname
+			if [ "${IP}" ];then
+				#Have an IP but no hostname
+				$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, no hostname,IP:${IP}${R}";fi
+			else
+				#Don't have an IP and don't have hostname
+				if [ ! "$IP" ];then
+					IP="0.0.0.0";
+				fi
+				$EC "UPDATE macs SET indns=${DNS},lastip='${IP}',lastseen='${DATE}' where mac='${MAC}';" | ${SQL}
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Updated${BrBl} MAC of $MAC, no hostname, IP:${IP}${R}";fi
+			fi
+		fi
+	else
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_WARN}Attempted update with blank MAC!${R}";fi
+	fi
+}
+
+function insert ()
+{
+	clean_mac
+	tmp_HOSTNAME=`$EC "select hostname from macs where mac='${MAC}';"|${SQL}`
+	if [ "$tmp_HOSTNAME" != "NULL" ];then
+		$EC $MAC $HOST
+		$EC "INSERT macs (indns,hostname,mac,lastip,lastseen) values('${DNS}','${HOST}','${MAC}','${IP}','${DATE}') on duplicate key update lastip='$IP',lastseen='${DATE}';" | ${SQL}
+	else
+		$EC "INSERT macs (indns,hostname,mac,lastip,lastseen) values('${DNS}','${HOST}','${MAC}','${IP}','${DATE}') on duplicate key update lastip='$IP',lastseen='${DATE}',hostname='${HOST}';" | ${SQL}
+	fi
+	if [ $? -eq 0 ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Inserted or updated${BrBl} entry $HOST MAC:${MAC},IP:${IP}${R}"
+		else
+			if [ ! "$1" ];then
+				$EC "$HOST"
+			fi
+		fi
+	fi
+}
+
+#${NM} -sP ${SUBNET} &>${QUIET}
+
+function hostname-check (){
+	if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Checking hostname to see if we have a duplicate entry for this hostname.${R}";fi
+	SQLOUTPUT=`$EC "SELECT mac,hostname from macs where hostname='${HOST}' and mac!='${MAC}'" | ${SQL}`
+	${EC} ${SQLOUTPUT} | ${GR} -v "${MAC}" | ${GR} -i "${HOST}" &> /dev/null
+	if [ $? -eq 0 ];then
+		#There is such a hostname, so change HOST to default name
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Hostname (${HOST}) exists. Using default ($DEFAULTHOST)${R}";fi
+		HOST=${DEFAULTHOST}
+	else
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Duplicate hostname not found ($HOST).${R}";fi
+	fi
+}
+
+function hostname-from-dhcpd (){
+	if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Attempting to find hostname for $MAC from dhcpd.leases.${R}";fi
+	while read _LINE;do
+		$EC $_LINE | $GR $MAC &> /dev/null
+		RESULT=$?
+		if [ $RESULT -eq 0 ];then
+			read _LINE;
+			$EC $_LINE | $GR ..:..:..:..:..:.. &> /dev/null
+			if [ $? -ne 0 ];then
+				HOST=$_LINE;
+				if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Found ${B}${HOST}${BrBl} in dhcpd.leases${R}";fi
+			fi
+			break;
+		fi
+	done<$TMP_FILE
+}
+
+function gather (){
+	GR="/bin/egrep"
+	if [ $ignoreLeases -eq 0 ];then
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Scanning dhcp leases.${R}";fi
+		$GR client-hostname\|hardware $FILE_LEASES| $GR -v ^# | sed -e 's/ {//' -e 's/^[[:blank:]]*//' -e 's/client-hostname "//' -e 's/hardware ethernet //' -e 's/";//' -e 's/;$//' | $TR [a-z] [A-Z]> $TMP_FILE
+	else
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Not scanning dhcp leases.${R}";fi
+	fi
+	for LINE in `$AR $AR_PARM | $GR ether | $AW '{print $1}'`;do
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Filering through macs.${R}";fi
+		HOST="";
+		MAC=`$AR $LINE | $GR ether | $AW '{print $3}'`
+
+		#Get hostname from dhcpd.leases:
+		if [ $ignoreLeases -eq 0 ];then
+			if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Attempting hostname resolution from dhcp.${R}";fi
+			hostname-from-dhcpd
+		else
+			if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Not attempting hostname resolution from dhcp.${R}";fi
+		fi
+
+		if [ ! "$HOST" ] || [ "$HOST" == "localhost" ];then
+			if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Did not find an entry in dhcpd.conf. Trying host.";fi
+			HOSTLINE=`$HO $LINE`
+			$EC $HOSTLINE | $GR "has address" &>$QUIET
+			if [ $? -eq 0 ];then
+				#Found entry for $HOST - almost never happens in my setup
+				DNS=1;
+				HOST=`$EC $HOSTLINE | $GR -v "not found:"| $AW '{print $1}'`
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found ${B}${HOST}${BrBl} by host${R}";fi
+				IP=`$EC $HOSTLINE | $AW '{print $4}'`
+			else
+				if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Did not find host by 'host'. Trying netbios${R}";fi
+				#Check in netbios
+				HOST=`$NMB -A "$LINE" | $GR "<00>" | $GR -v "<GROUP>" | $AW '{print $1}'`;
+				if [ "$HOST" == "" ];then
+					if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Did not find with netbios ($LINE).${R}";fi
+					DNS=2;
+					HOST="$LINE"
+					IP=`$CT $HOSTFILE | $GR [[:blank:]]$HOST$ | $AW '{print $1}'`
+				else
+					if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Found ${B}${HOST}${BrBl} with netbios${R}";fi
+					DNS=0;
+					IP=`$NMB -A "$LINE" | $GR "Looking" | $AW '{print $5}'`
+				fi
+			fi
+		else
+			if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Empty host or host is localhost.${R}";fi
+		fi
+		#$EC "$DNS $HOST $MAC $IP $DATE"
+		#Have information, now check whether to update or add the database
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Scanning DB for old entries.${R}";fi
+		DBLINE=`$EC "SELECT * from macs where mac='${MAC}'" | ${SQL} | $GR ":"`
+		if [ `${EC} ${MAC} | ${GR} '\\' &>/dev/null;$EC $?` -ne 0 ];then
+			#If such a MAC entry already exist
+			if [ `$EC ${DBLINE} | $GR "${MAC}" &> /dev/null ; $EC $?` == "0" ];then
+				if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}Found existing entry.${R}";fi
+				#If the hostname exists use specified default hostname
+				hostname-check;
+				update;
+			else
+				if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_INFO}New entry.${R}";fi
+				#If the hostname exists use specified default hostname
+				hostname-check;
+				insert;
+			fi
+		else
+			if [ $isVerbose -eq 1 ];then $EC "Garbled MAC! Found a '\\'";fi;
+		fi
+	done
+}
+
+function remove (){
+	while [ "$1" ];do
+		$EC "delete from $TABLE where number='$1';" | $SQL
+		if [ $isVerbose -eq 1 ];then $EC "Deleted entry $1";fi
+		shift;
+	done
+}
+
+function lookfor (){
+	#$EC "select * from $TABLE;" | ${SQL} | ${GR} -i $@ 2> /dev/null |$CL -t -c7;
+	FIELDS="number as '#', hostname AS 'Hostname', lastseen AS 'Last_Day Last_Time', lastip AS 'IP', mac AS 'MAC', last_hostname AS 'Current_hostname'"
+	$EC "select $FIELDS from $TABLE ORDER BY date(lastseen);"|$SQL |$CL -t -c6 |${GR} -i $@ 2>/dev/null
+}
+
+function addone(){
+	$EC addone $1 $2 $3
+	HOST="$1";IP="$2";
+	$EC $1|$GR [[:digit:]][[:digit:]]*\.[[:digit:]]*\.[[:digit:]][[:digit:]]*\.[[:digit:]][[:digit:]]* &> /dev/null
+	if [ $? -ne 0 ];then
+					if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding IP of ${HOST}${R}";fi
+					IP=`$NB $HOST|$GR "<00>"|$AW '{print $1}'`;
+					if [ ! "$IP" ];then
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding IP of ${HOST} on next segment${R}";fi
+						IP=`$NB -B $ILLEGALBROADCAST $HOST|$GR "<00>"|$AW '{print $1}'`;
+						if [ ! "$IP" ];then
+							if [ "$2" ];then
+								IP="$2";
+								if [ ! "$IP" ];then
+									$EC "Unable to find an IP for the specified host"
+									exit $E_CANT_FIND_MAC;
+								fi
+							else
+								$EC "Unable to find an IP for the specified host"
+								exit $E_CANT_FIND_MAC;
+							fi
+						fi
+					fi
+					if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found IP of ${IP}${R}";fi
+	fi
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding MAC of ${IP}${R}";fi
+	MAC=`$AR $IP|$GR -v HWaddress|$AW '{print $3}'`;
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found MAC of ${MAC}${R}";fi
+	if [ "$MAC" ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Cleaning MAC${R}";fi
+		clean_mac;
+		$EC $MAC|$GR [[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]] &> /dev/null
+		if [ $? -eq 0 ];then
+
+			#If we defaulted hostname, recover from passed parameter
+			if [ "$HOST" == "NULL" ];then
+				HOST="$1";
+			fi
+		else
+			$EC -n "The MAC I found is invalid."
+			if [ "$3" ];then
+				$EC $3|$GR [[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]] &> /dev/null
+				MAC="$3";
+				$EC " Using the one you gave me"
+			else
+				$EC " You did not give me a MAC."
+			fi
+		fi
+
+		#Now make sure the mac is in the right format
+		$EC $MAC|$GR [[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]] &> /dev/null
+		if [ $? -ne 0 ];then
+			$EC $EC_PARM "${S_ERR}Bad mac $MAC. Not updating${R}"
+		fi
+		
+		CURRENT_ENTRY_HOST="`$GM host $MAC`";
+		if [ "$CURRENT_ENTRY_HOST" != "$HOST" ];then
+			if [ "$CURRENT_ENTRY_HOST" == "NULL" ];then
+				$EC $EC_PARM "${S_INFO}Existing entry under different name ($CURRENT_ENTRY_HOST)${R}" > /dev/stderr;
+				$GM remove `$GM find $MAC|$AW '{print $1}'`
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Inserting MAC in database under new host name${R}";fi
+				insert $DONT_SHOW_HOSTNAME;
+			else
+				DONT_SHOW_HOSTNAME=1;
+				$EC $EC_PARM "${S_WARN}Existing entry under different name ($CURRENT_ENTRY_HOST)${R}" > /dev/stderr;
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Updating MAC in database. To change the host name, remove the entry first, or use 'gathermacs change <current> <new>'${R}";fi
+				insert $DONT_SHOW_HOSTNAME;
+			fi
+		fi
+
+	else
+		$EC $EC_PARM "${S_ERR}No mac found for ${HOST}${R}";
+		exit 11;
+	fi
+}
+
+trap "SigInt 2" INT
+
+if [ -f $CONFFILE ];then
+	#Source the config file
+	. $CONFFILE
+	DEFAULTHOST="NULL"
+	ROOTSQL=$SQ" -u root -p -h $HOST"
+	QUIET="/dev/null"
+	DATE=`${DT} +%Y-%m-%d" "%H:%M`
+else
+				echo 1
+	$EC "There is no $CONFFILE. I need one to do my job. Panicking!"
+	clean;
+	exit 2;
+fi
+
+#Clean the lockfile first?
+while [ "$1" ] && [ $haveParameter -eq 0 ];do
+	case "$1" in
+		change)
+		      shift;
+		      change_user $@;
+		      exit 0;
+		      ;;
+
+		-s|--single)
+			doSingle=1;shift;
+			HOST=$1;shift;
+			addone $HOST $@;
+			$EC addone $HOST $@;
+			exit 0;
+			;;
+		-r|remove)
+			shift;
+			remove $@;
+			exit 0;
+			;;
+		-c|clean)
+			shift;
+			if [ $isVerbose -eq 1 ];then $EC "Cleaning lockfile";fi
+			$RM -f ${LOCKFILE};
+			exit 0;
+			;;
+		name|host)
+			shift;
+			RESULT=`$EC "select hostname from macs where mac='${1}' order by number limit 1;"|$SQL| grep -v "hostname"`
+			if [ "$RESULT" ];then
+				$EC $RESULT
+			else
+				if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${1} was not found in the database${R}";fi
+			fi
+			exit 0;
+			;;
+		mac)
+			shift;
+			RESULT=`$EC "select mac from macs where hostname like '${1}' order by number limit 1;"|$SQL| grep -v "mac"`
+			$EC $RESULT
+			exit 0;
+			;;
+		ip)
+			shift
+			RESULT=`$EC "select lastip from macs where hostname like '${1}' order by number limit 1;"|$SQL|grep -v "ip"`
+			$EC $RESULT
+			exit 0;
+			;;
+		-f|--find|find)
+			shift;
+			lookfor $1;
+			exit 0;
+			;;
+		-v)
+			isVerbose=1;shift
+			let "VERBOSITY += 1"
+			$EC $EC_PARM "${S_INFO}Increasing verbosity to ${VERBOSITY}${R}"
+			;;
+		show)
+			shift;
+			if [ "$1" == "by" ];then
+				shift;
+				case "$1" in
+					date)
+						shift
+						byDate=1;
+						byTime=0;
+						;;
+					time)
+						shift
+						byTime=1;
+						byDate=0;
+						;;
+					*)
+						shift;
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Defaulting on sorting.${R}";fi
+						byNumber=1;
+						;;
+				esac
+			elif [ "$1" == "pings" ];then
+				shift;
+				showPings=1;
+				byDate=0;
+				byTime=0;
+				byHost=0;
+				byNumber=0;
+			fi
+			show;
+			clean;
+			exit 0;
+			;;
+		create_db)
+			shift
+			create_db;
+			clean;
+			exit 0;
+			;;
+		destroy_db)
+			shift
+			destroy_db;
+			clean;
+			exit 0;
+			;;
+		--help|-h)
+			help;
+			exit $E_OK;
+			;;
+		--no-dhcpd|--no-leases|--ignore-leases|--ignore-dhcpd|-il|-id|-nd|-nl)
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Ignoring dhcpd.leases for IP resolution.${R}";fi
+			ignoreLeases=1;shift;
+			;;
+		--)
+			haveParameter=1;
+			shift;
+			;;
+		*)
+			#Unknown parameter
+			haveParameter=1;
+			;;
+	esac
+done
+
+if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Done parsing parameters${R}";fi
+
+#Check for running copies
+if [ -e $LOCKFILE ];then
+	if [ $isVerbose -eq 1 ];then
+		$EC ""
+		$EC "A lockfile \"$LOCKFILE\" currently exists, which means"
+		$EC "that this script is already running, or some error"
+		$EC "in execution resulted in a stale lockfile"
+	else
+		$EC "Lockfile";
+	fi
+	exit 1;
+else
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}No lock file found${R}";fi
+fi
+
+#Create lockfile
+$EC "" > $LOCKFILE
+if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Lock file created${R}";fi
+
+#Check parameters
+case $1 in
+	-p|ping)
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}scanning${R}";fi
+		/usr/bin/nmap -sP ${SUBNET} &>/dev/null;
+		gather;
+		clean;
+		exit 0;
+		;;
+	*)
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Harvesting${R}";fi
+		gather;
+		clean;
+		exit 0;
+		;;
+esac

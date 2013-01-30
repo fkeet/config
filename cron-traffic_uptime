@@ -1,0 +1,14 @@
+#!/bin/bash
+
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+fi
+
+SITE="/root/scripts/site.conf"
+if [ -f "$SITE" ];then
+	. "$SITE"
+fi
+
+echo "`date`,`uptime`" > "$WEBROOT"/uptime.txt
+chown ${WEBUSER}.${WEBUSER} "$WEBROOT"/uptime.txt

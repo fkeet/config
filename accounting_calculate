@@ -1,0 +1,86 @@
+#!/bin/bash
+#1: Missing file with port groupings
+IPT="/sbin/iptables"
+SOURCE="/root/scripts/accounting_config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+TABLE="traffic"
+USER_TABLE="macs"
+TOTAL_IN=0;
+TOTAL_OUT=0;
+bps=0;
+HEARTBEAT=300;#seconds between DB updates. Used to calculate bps rates.
+AW="/usr/bin/awk"
+GR="/bin/grep"
+DN=$(dirname $0)
+GROUP_TABLE="user_groups"
+PORTS_FILE="$DN/port_groups"
+if [ ! -f "$PORTS_FILE" ];then
+	echo "Missing file port_groups"
+	exit 1;
+fi
+
+#get all the traffic TO the ip (host traffic in)
+$IPT -x -n -Z -vL accounting_out -t mangle|$AW '{print $2" "$9" "$12}'|$GR -v ^0|$GR -v "accounting_out"|while read line
+do
+	bytes=`echo $line|$AW '{print $1}'`
+	ip=`echo $line|$AW '{print $2}'`
+	ports=`echo $line|$AW '{print $3}'`
+	if [ -n "$ports" ];then
+		desc=`$GR $ports $PORTS_FILE|$AW '{print $1}'`
+	else
+		desc="";
+	fi
+	if [ $ip ] && [ $bytes ] && [ "$ip" != "source" ] && [ "$bytes" != "bytes" ];then
+		let "bps=$bytes/$HEARTBEAT";
+		#Add to total traffic_in
+		#First see if we can find a user id
+		ID=`echo "select count(number) from $USER_TABLE where lastip='$ip' and lastseen > now()-7200"|$SQL`
+		if [ "$ID" == "0" ];then
+			$EC $ID
+			break;
+		fi
+		echo "insert into $TABLE (user_id,date,traffic_in,bps_in,last_bytes_in) values ((select number from $USER_TABLE where lastip='$ip' and lastseen>now()-7200 limit 1),current_date(),$bytes,$bps,$bytes) on duplicate key update traffic_in=traffic_in+$bytes,bps_in=$bps,last_bytes_in=$bytes"|$SQL &>/dev/null
+		if [ $? -ne 0 ];then
+			echo "insert into $TABLE (user_id,date,traffic_in,bps_in,last_bytes_in) values ((select number from $USER_TABLE where lastip='$ip' order by lastseen desc limit 1),current_date(),$bytes,$bps,$bytes) on duplicate key update traffic_in=traffic_in+$bytes,bps_in=$bps,last_bytes_in=$bytes"|$SQL
+			if [ $? -ne 0 ];then
+				echo "Bad update on traffic_in for $ip";
+			fi
+		fi
+
+		#Add to port group traffic_in
+		if [ -n "$desc" ];then
+			echo "update $TABLE set ${desc}_in=${desc}_in+$bytes where user_id=(select number from $USER_TABLE where lastip='$ip' and lastseen>now()-7200)"|$SQL
+			if [ $? -ne 0 ];then
+							echo $ip
+			fi
+		fi
+		
+	fi
+done
+
+#get all the traffic FROM the mac (host traffic out)
+$IPT -x -n -Z -vL accounting_in -t mangle|$AW '{print $2" "$11}'|$GR -v ^0|$GR -v "accounting_in"|while read line
+do
+	bytes=`echo $line|$AW '{print $1}'`
+	mac=`echo $line|$AW '{print $2}'`
+	if [ $mac ] && [ $bytes ] && [ "$mac" != "MAC" ] && [ "$bytes" != "bytes" ];then
+		let "bps=$bytes/$HEARTBEAT";
+		echo "insert into $TABLE (user_id,date,traffic_out,bps_out,last_bytes_out) values ((select number from macs where mac='$mac'),current_date(),$bytes,$bps,$bytes) on duplicate key update traffic_out=traffic_out+$bytes,bps_out=$bps,last_bytes_out=$bytes"|$SQL
+		if [ $? -ne 0 ];then
+			echo "Using mac:$mac"
+			echo "select * from macs where mac='$mac'"|$SQL
+		fi
+
+		#Add to port group traffic_in
+		if [ -n "$desc" ];then
+			echo "update $TABLE set ${desc}_out=${desc}_out+$bytes where user_id=(select number from $USER_TABLE where lastip='$ip' and lastseen>now()-7200)"|$SQL
+		fi
+	fi
+done
+
+#get all the group traffic
+groups=`echo "select group_name from $GROUP_TABLE"|$SQL|$GR -v group_name`
+for group in $groups;do
+	bytes_left=`$IPT -x -n -Z -vL group_$group -t mangle 2>/dev/null|$AW '{print $11}'|$GR -v ^$`
+	echo "update $GROUP_TABLE set traffic_left='$bytes_left' where group_name='$group'"|$SQL
+done

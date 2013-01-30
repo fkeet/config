@@ -1,0 +1,43 @@
+#!/bin/bash
+
+#Load some default settings
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	.	"$HEADER"
+fi
+TRIES=1
+REPLIES=1
+min=0
+avg=0
+max=0
+mdev=0
+
+#Get our list of last seen MAC mappings from the DB table.
+$EC "SELECT lastip,mac FROM ${DBNAME}.${TABLE} ORDER BY lastseen"|$SQL|$GR -v "mac"|while read IP MAC;do
+
+	if [ "$IP" != "NULL" ] && [ "$IP" != "0.0.0.0" ];then
+		#Is this host alive?
+		$PI -w${TRIES} -c${REPLIES} -q ${IP}|$GR "rtt min"|$GR "\/"|$AW -F"/" '{print $4" "$5" "$6" "$7}'|$SD -e 's/^.*= //' -e 's/ ms$//'|while read line;do
+			if [ $? -eq 0 ];then
+				MIN=`$EC $line|$AW '{print $1}'`
+				AVG=`$EC $line|$AW '{print $2}'`
+				MAX=`$EC $line|$AW '{print $3}'`
+				MDEV=`$EC $line|$AW '{print $4}'`
+
+				#What tcp ports are open?
+				TCP_PORTS=`$NM -sS $IP|$GR open|$AW '{print $1" "$3}'|while read LINE;do
+					$EC -n ${LINE},
+				done`
+
+				#What udp ports are open?
+				UDP_PORTS=`$NM -sU $IP|$GR open|$GR -v "All scanned"|$AW '{print $1" "$3}'|while read LINE;do
+					$EC -n ${LINE},
+				done`
+			fi
+			if [ "$UDP_PORTS" ] || [ "$TCP_PORTS" ];then
+				$EC "UPDATE ${DBNAME}.${TABLE} SET open_ports='${TCP_PORTS}${UDP_PORTS}',lastseen=NOW() WHERE mac='${MAC}'"|$SQL
+			fi
+			$EC "UPDATE ${DBNAME}.${TABLE} SET ping_min=${MIN},ping_max=${MAX},ping_avg=${AVG},ping_mdev=${MDEV},lastseen=NOW() WHERE mac='${MAC}'"|$SQL
+		done
+	fi
+done

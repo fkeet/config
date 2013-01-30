@@ -1,0 +1,17 @@
+#!/bin/bash
+SOURCE="/root/scripts/accounting.config"
+GROUP_TABLE="user_groups"
+[ -f "$SOURCE" ] && . "$SOURCE"
+
+if [ "$1" ] && [ "$2" ];then
+				while [ "$1" == "of" ];do shift;done
+				GROUP=$1
+				while [ "$2" == "to" ];do shift;done
+				HOST="$2"
+				echo "update $TABLE set group_id=(select group_id from $GROUP_TABLE where group_name='$GROUP') where hostname='$HOST'"|$SQL
+				if [ $? -ne 0 ];then
+								echo "Bad group assignment."
+				fi
+else
+				echo "Usage: $(basename $0) <group_name> <host_name>"
+fi

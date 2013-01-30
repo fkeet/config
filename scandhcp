@@ -1,0 +1,18 @@
+#!/bin/bash
+#Script to scan syslog to check for assigning of ip
+#######################################################################################################
+# Changelog
+#######################################################################################################
+#	Fred 060421
+#	*	():created
+#	*	():Added support for passed ip
+#######################################################################################################
+E_MISSING_PARAMETER=11;
+
+if [ "$1" ];then
+	egrep DHCP /var/log/syslog|egrep -i $1
+#	zgrep DHCP /var/log/syslog*|egrep -i $1
+else
+	echo "I need a ip as parameter. ie: $(basename $0) 192.168.0.345"
+	exit $E_MISSING_PARAMETER
+fi

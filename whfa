@@ -1,0 +1,35 @@
+#!/bin/bash
+
+#Load defaults
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+else
+	echo "Missing file ($HEADER). Stopping."
+	exit 1;
+fi
+
+###
+#Override variables here
+###
+TMP_FILE="/tmp/$(basename $0).$(date +%Y%m%d%H%M).tmp"
+
+###
+#Declare functions here
+###
+
+###
+#Main script start
+###
+
+$IPT -vnL full_access -t nat|awk '{print $11}'|while read mac;
+do 
+		gathermacs host $mac >> "$TMP_FILE"
+done
+
+if [ -f "$TMP_FILE" ];then
+	$CT "$TMP_FILE"|$ST -u
+	$RM "$TMP_FILE"
+else
+	$EC "No one"
+fi

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#Load some default settings
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	.	"$HEADER"
+fi
+
+#Get our list of last seen MAC/IP mappings from the arp table.
+$AR -n|$GR -v "HWaddress"|$AW '{print $1" "$3}'|while read IP MAC;do
+	MAC=`$EC $MAC|$TR a-z A-Z`
+	$EC "UPDATE ${DBNAME}.${TABLE} SET lastip='${IP}',lastseen=NOW() WHERE mac='${MAC}' "|$SQL
+done

@@ -1,0 +1,22 @@
+#!/bin/bash
+
+#Load defaults
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+else
+	echo "Missing file ($HEADER). Stopping."
+	exit 1;
+fi
+
+###
+#Override variables here
+###
+
+###
+#Declare functions here
+###
+
+###
+#Main script start
+###

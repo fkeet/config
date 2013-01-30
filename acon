@@ -1,0 +1,446 @@
+#!/bin/bash
+################################################
+# Changelog
+################################################
+#	Fred
+#	060413
+#	* (assignchain):Added case for half
+#	* (clearchain):Added special section for half
+#	* (assignfile):Added case for half
+#	* (stop):Remarked removerules
+#	*	(addone):Moving code segment to function
+#	*	(removeone):Moving code segment to function
+#	*	(main):Added case for add
+#	*	(findmac):calls gathermacs to find a mac from network
+#	*	(clearchain):extended methods of finding a mac
+#	*	(start):Changed line for forward chain to append rule and not insert
+#	Fred 060418
+#	* (start):Changed add rules into function
+#	*	(addrules):Cut from start function and created as function for nicer blockability
+#	* (removerules):Check for special access
+#	*	(addrules):Add checks for special access
+#	Fred 060419
+#		*	():Add sourcing of header file to incorporate site.conf
+#		*	():Remove definition for INPUT_FILE
+#		*	():Added sanity check for existance of INPUT_FILE prior to starting
+#		*	(clearchain):Added removeone to if section, to replace break statement
+#		* (start):Added support for # remarking in the list files
+# Fred 060420
+#		*	():Move INPUT_TCP_PORTS1, INPUT_UDP_PORTS1, FORWARD_TCP_PORTS1 to site.conf to facilitate site specific settings
+# Fred 060510
+#	*	():Added iptables -D to make sure we remove any stupid accept rules
+#	Fred	060605
+#	*	():Added rules for prerouting .3.0/24 and .4.0/24 redirect to .3.1 and .4.1 for advertisement and info
+#	*	():Removed domain port from udp port lists, we are doing this in shorewall now
+#	*	():Inserted check for blank udp port list.
+################################################
+
+IPT="/sbin/iptables"
+E_INVALID_PARM=1;
+E_MISSING_PARM=2;
+CHAIN=""
+GM="/root/scripts/gathermacs"
+INPUT="loc2fw"
+PREROUTING="loc_dnat"
+FORWARD="loc2net"
+MAC=""
+E_MISSING_FILE_HEADER=1;
+E_MISSING_FILE_INPUT=11;
+HEADER="/root/scripts/scriptheader"
+
+####################################################################################
+#	Preperation
+####################################################################################
+if [ -f "$HEADER" ];then
+			 . "$HEADER"
+else
+				echo "Missing header file. Closing"
+				exit $E_MISSING_FILE_HEADER
+fi
+####################################################################################
+
+function findmac(){
+$GM -s $1
+}
+
+function assignchain () {
+		case $1 in
+						full)
+							CHAIN="full_access"
+						;;
+						special)
+							CHAIN="special_access"
+						;;
+						half)
+							CHAIN="full_access"
+							;;
+						*)
+							echo "Invalid argument ($1)"
+							exit $E_INVALID_PARM;
+						;;
+		esac
+}
+
+function addone(){
+	if [ "$1" ] && [ "$2" ];then
+		$IPT -A ${2} -m mac --mac-source $1 -i ${DOWNLINK} -j ACCEPT
+		if [ $? -ne 0 ];then
+			$EC "Problem adding mac ($1) to $2 chain"
+		fi
+		if [ "$2" != "special_access" ];then
+						$IPT -A ${2} -t nat -m mac --mac-source $1 -p tcp -j REDIRECT --to-port $PROXY_PORT &> /dev/null
+						if [ $? -ne 0 ];then
+							$IPT -N ${2} -t nat &> /dev/null
+							$IPT -A ${2} -t nat -m mac --mac-source $1 -p tcp -j REDIRECT --to-port $PROXY_PORT
+							if [ $? -ne 0 ];then
+								$EC Chain:$2;
+							fi
+						fi
+		fi
+	else
+		echo "Missing internal parameter"
+	fi
+}
+
+function removeone(){
+	if [ "$1" ] && [ "$2" ];then
+		$IPT -D ${2} -m mac --mac-source $1 -i ${DOWNLINK} -j ACCEPT &>/dev/null
+		if [ "$2" != "special_access" ];then
+						$IPT -D ${2} -t nat -m mac --mac-source $1 -p tcp -j REDIRECT --to-port $PROXY_PORT &>/dev/null
+		fi
+	else
+		echo "Missing internal parameter"
+	fi
+}
+
+function clearchain (){
+if [ "$1" != "half" ];then
+		$IPT -F $CHAIN
+		$IPT -F $CHAIN -t nat
+elif [ "$1" == "half" ];then
+		if [ -f $INPUT_FILE ];then
+			while read HOST;do
+				if [ `$EC $HOST |$GR ^#.*$|$WC -l` -eq 0 ];then
+							#Get mac from db
+								MAC=`$GM mac $HOST`
+								if [ ! "$MAC" ];then
+												#DB did not work. Try other methods
+												findmac $HOST;
+												MAC=`$GM mac $HOST`
+												if [ ! "$MAC" ];then
+																echo Missing mac for $HOST;
+												else
+																#Remove from chains
+																	removeone $MAC $CHAIN
+												fi
+								else
+												removeone $MAC $CHAIN
+								fi
+				fi			
+			done<$INPUT_FILE
+		fi
+fi
+}
+
+function assignfile (){
+		case $1 in
+						full)
+							INPUT_FILE="/root/lists/full_access"
+						;;
+						special)
+							INPUT_FILE="/root/lists/special_access"
+						;;
+						half)
+							INPUT_FILE="/root/lists/half_access"
+						;;
+						*)
+							echo "Invalid argument ($1)"
+							exit $E_INVALID_PARM;
+						;;
+		esac
+		if [ ! -f "$INPUT_FILE" ];then
+						$EC $EC_PARM "${S_ERR}Missing list file ($INPUT_FILE)${R}"
+						exit $E_MISSING_FILE_INPUT;
+		fi
+}
+
+function removerules(){
+	case $CHAIN in
+					full_access|half_access)
+									$IPT -D POSTROUTING -o ${UPLINK} -t nat -j MASQUERADE &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport 80 -j $PREROUTING &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${GW} -j ACCEPT &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${ILLEGALGW} -j ACCEPT &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${UNPAIDGW} -j ACCEPT &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -j ${CHAIN} &> /dev/null
+									$IPT -D $PREROUTING -t nat -p tcp --dport 80 -i ${DOWNLINK} -j REDIRECT --to-port 80 &> /dev/null
+									$IPT -D $INPUT -i ${DOWNLINK} -p tcp -m multiport --dports $INPUT_TCP_PORTS1 -j ${CHAIN} &> /dev/null
+									if [ "$INPUT_UDP_PORTS1" ];then
+										echo 1
+										$IPT -D $INPUT -i ${DOWNLINK} -p udp -m multiport --dports $INPUT_UDP_PORTS1 -j ${CHAIN} &> /dev/null
+										echo 2
+									fi
+									$IPT -D $FORWARD -m multiport -i ${DOWNLINK} -o ${UPLINK} -p tcp --dports $FORWARD_TCP_PORTS1 -j ${CHAIN} &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -s ${ILLEGALNET} ! -d ${ILLEGALGW} -p tcp --dport http -j DNAT --to-destination ${ILLEGALGW}:80 &> /dev/null
+									$IPT -D $PREROUTING -t nat -i ${DOWNLINK} -s ${UNPAIDNET} ! -d ${UNPAIDGW} -p tcp --dport http -j DNAT --to-destination ${UNPAIDGW}:80 &> /dev/null
+									;;
+					special_access)
+									$IPT -D $FORWARD -i ${DOWNLINK} -o ${UPLINK} -j $CHAIN &> /dev/null
+									;;
+	esac
+}
+
+function addrules(){
+	case $CHAIN in
+					full_access|half_access)
+										#Input chain
+												$IPT -I $INPUT 2 -i ${DOWNLINK} -p tcp -m multiport --dports $INPUT_TCP_PORTS1 -j ${CHAIN}
+												if [ $? -ne 0 ];then
+													$EC $IPT -I $INPUT 2 -i ${DOWNLINK} -p tcp -m multiport --dports $INPUT_TCP_PORTS1 -j ${CHAIN}
+												fi
+
+												if [ "$INPUT_UDP_PORTS1" ];then
+													$IPT -I $INPUT 2 -i ${DOWNLINK} -p udp -m multiport --dports $INPUT_UDP_PORTS1 -j ${CHAIN}
+													if [ $? -ne 0 ];then
+														$IPT -I $INPUT 2 -i ${DOWNLINK} -p udp -m multiport --dports $INPUT_UDP_PORTS1 -j ${CHAIN} 
+													fi
+												fi
+
+										#NAT
+												$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -j ${CHAIN}
+												if [ $? -ne 0 ];then
+													$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -j ${CHAIN}
+												fi
+
+												$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${GW} -j ACCEPT
+												if [ $? -ne 0 ];then
+													$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${GW} -j ACCEPT
+												fi
+
+												$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${ILLEGALGW} -j ACCEPT
+												if [ $? -ne 0 ];then
+													$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${ILLEGALGW} -j ACCEPT
+												fi
+
+												$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${UNPAIDGW} -j ACCEPT
+												if [ $? -ne 0 ];then
+													$IPT -I $PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport http -d ${UNPAIDGW} -j ACCEPT
+												fi
+
+												$IPT -I PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport 80 -j $PREROUTING
+												if [ $? -ne 0 ];then
+													$IPT -I PREROUTING -t nat -i ${DOWNLINK} -p tcp --dport 80 -j $PREROUTING
+												fi
+
+												$IPT -I POSTROUTING -o ${UPLINK} -t nat -j MASQUERADE &> /dev/null
+												if [ $? -ne 0 ];then
+													$IPT -I POSTROUTING -o ${UPLINK} -t nat -j MASQUERADE &> /dev/null
+												fi
+
+#												$IPT -A $PREROUTING -t nat -p tcp --dport 80 -i ${DOWNLINK} -j REDIRECT --to-port 80
+#												if [ $? -ne 0 ];then
+#													$IPT -A $PREROUTING -t nat -p tcp --dport 80 -i ${DOWNLINK} -j REDIRECT --to-port 80
+#												fi
+
+												$IPT -A $PREROUTING -t nat -i ${DOWNLINK} -s ${ILLEGALNET} ! -d ${ILLEGALGW} -p tcp --dport http -j DNAT --to-destination ${ILLEGALGW}:80
+												if [ $? -ne 0 ];then
+													$IPT -A $PREROUTING -t nat -i ${DOWNLINK} -s ${ILLEGALNET} ! -d ${ILLEGALGW} -p tcp --dport http -j DNAT --to-destination ${ILLEGALGW}:80
+												fi
+
+												$IPT -A $PREROUTING -t nat -i ${DOWNLINK} -s ${UNPAIDNET} ! -d ${UNPAIDGW} -p tcp --dport http -j DNAT --to-destination ${UNPAIDGW}:80
+												if [ $? -ne 0 ];then
+													$IPT -A $PREROUTING -t nat -i ${DOWNLINK} -s ${UNPAIDNET} ! -d ${UNPAIDGW} -p tcp --dport http -j DNAT --to-destination ${UNPAIDGW}:80
+												fi
+
+										#Forward chain
+												$IPT -I $FORWARD 2 -m multiport -i ${DOWNLINK} -o ${UPLINK} -p tcp --dports $FORWARD_TCP_PORTS1 -j ${CHAIN}
+						;;
+						special_access)
+										#Forward chain vir special access
+											$IPT -I $FORWARD 2 -i ${DOWNLINK} -o ${UPLINK} -j $CHAIN
+						;;
+		esac				
+}
+
+function start(){
+	#Check parameters
+	if [ "$1" ];then
+
+		#We have a parameter. Now assign the chain and input file based on this parameter
+		assignchain $@;
+		assignfile $@;
+		
+		#SETUP	
+		#Create chains just to make sure it does exist
+		$IPT -N $CHAIN &> /dev/null
+		$IPT -N $CHAIN -t nat &>/dev/null
+		$IPT -N $PREROUTING -t nat &> /dev/null
+
+		#Clear chains that belong to us if they already existed
+		clearchain $@
+	
+		#Generate mac table;	
+		if [ -f $INPUT_FILE ];then
+			$GR -v ^# $INPUT_FILE >$INPUT_FILE.tmp
+			if [ ! -f "$INPUT_FILE.tmp" ];then
+							$EC "We lost the input file somewhere"
+							exit $E_MISSING_FILE_INPUT;
+			fi
+			while read HOST;do
+							#Get mac from db
+								MAC=`$GM mac $HOST`
+								if [ ! "$MAC" ];then
+												#DB did not work. Try other methods
+												findmac $HOST;
+												MAC=`$GM mac $HOST`
+												if [ ! "$MAC" ];then
+																echo Missing mac for $HOST;
+												else
+																#Add chains
+																	if [ "$CHAIN" ];then
+																		removeone $MAC $CHAIN
+																		addone $MAC $CHAIN
+																	else
+																		echo "M1: Chain not set"
+																	fi
+												fi
+								fi
+
+							#Add to chains
+								if [ "$CHAIN" ];then
+									if [ "$MAC" ];then
+										removeone $MAC $CHAIN
+										addone $MAC $CHAIN
+									fi
+								else
+									echo "M2: Chain not set"
+								fi
+								
+			done<$INPUT_FILE.tmp
+			$RM -f "$INPUT_FILE.tmp" &> /dev/null
+		fi
+
+		#Remove previous rules to prevent duplicates
+    removerules;
+		
+		#Add entries to correct places
+    addrules;
+
+    mail_admin $@
+	else
+						echo missing parm
+	fi
+}
+
+function mail_admin(){
+    CLASS='acon'
+    ML="mail"
+    ADMIN_EMAIL="accounts@fns.co.za"
+    SUCCESS=1;
+    if [ $SUCCESS -eq 1 ];then
+        SUBJECT="$SUBJECT $CLASS,$@,`date +%Y-%m-%d' '%H:%M`"
+        $EC $SUBJECT|$ML -s "$SUBJECT" -a "From:Tigger<root@fns.co.za>" $ADMIN_EMAIL
+        if [ $? -eq 0 ];then $EC "Successful mail to $ADMIN_EMAIL";else $EC "Error mailing to $ADMIN_EMAIL";fi
+    fi
+}
+
+function stop(){
+	#Check if we have a parameter
+	if [ $1 ];then
+					#We have a parameter. 
+					
+					#Now assign the chain and list file based on this parameter
+						assignchain $@;
+						assignfile $@;
+					
+					#Clear the chains that belong to us
+						clearchain $@;
+
+					#Remove entries from correct places
+					#removerules;
+					
+	else
+					echo missing parm
+	fi
+}
+
+function setlocation() {
+	if [ -z $1 ] || [ -z $2 ];then
+		$EC "Missing parameters; {user} {location}";
+		exit;
+	fi
+
+	$EC "Setting the location for $1 to $2"
+	$EC "INSERT INTO allocations (location_id,user_id) VALUES ((SELECT id FROM locations WHERE locations.keyword='${2}'),(SELECT number FROM macs WHERE hostname='${1}')) ON DUPLICATE KEY UPDATE location_id=(SELECT id FROM locations WHERE locations.keyword='${2}');"|$SQL;
+}
+
+$IPT -D $FORWARD -j ACCEPT &> /dev/null
+$IPT -D $INPUT -j ACCEPT &> /dev/null
+
+if [ "$1" == "" ];then
+	$EC "Use: acon {remove|add|start|stop|restart}"
+	exit;
+fi
+
+while [ "$1" ];do
+	case $1 in
+					remove)
+						shift;
+						CHAIN="full_access";
+						if [ "$1" ];then
+								MAC=`$GM mac $1`
+								if [ ! "$MAC" ];then
+												echo Missing mac for $1;
+								else
+												removeone $MAC $CHAIN
+								fi
+						else
+										echo "Missing parameter"
+										exit $E_MISSING_PARM;
+						fi
+						shift;
+					;;
+					add)
+						shift;
+						CHAIN="full_access";
+						if [ "$1" ];then
+								MAC=`$GM mac $1`
+								if [ ! "$MAC" ];then
+												echo "No MAC for $1 in the database";
+								else
+												removeone $MAC $CHAIN
+												addone $MAC $CHAIN
+								fi
+						else
+										echo "Missing parameter"
+										exit $E_MISSING_PARM;
+						fi
+						shift;
+					;;
+					start)
+						shift;
+						start $@;
+						shift;
+					;;
+					stop)
+						shift;
+						stop $@;
+						shift;
+					;;
+					restart)
+						shift;
+						stop $@;
+						start $@;
+						shift;
+					;;
+					location)
+						shift;
+						setlocation $@;
+						shift;shift;
+					;;
+					*)
+						echo "Invalid parameters"
+						exit $E_MISSING_PARM;
+					;;
+	esac
+done

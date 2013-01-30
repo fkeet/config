@@ -1,0 +1,353 @@
+#!/bin/bash
+#######################################################################################################
+# Changelog
+#######################################################################################################
+#0412
+#	Added check for existence of INPUT_FILE
+# Added check for files in $ROOT
+#	Added variable for folders
+#0413
+#	Prerequisite:	iptraf
+#	Prerequisite:	rrdtool
+#	Added sanity check for bc
+#	Redirected 'kill' output to dev/null
+# Fred 060419
+#	* ():Modified draw max to 40k
+#	*	():Moved rrd parameters to variable, and added options
+#	*	():Added sourcing of script header
+#	*	():Added lookup of hostname as legend for image
+# Fred 060504
+#	*	():Moved step size and heartbeat for rrdcreate to variables and moved variables to site.conf
+# Fred 060509
+#	* ():Changed image width from 600 to 300
+#	*	():Removed -r option from rrdtool draw parameters
+#	* ():Added check for existance of host in database with hostname. If no hostname, dont add to combined image
+#	*	():Added check for existance of host in database with hostname. If no hostname, don't draw image
+#	*	():Removed -u40000 from rrdtool draw parameters
+#	*	():Removed legends for combined graph - too many to be of use in practice
+#	*	():Changed label for individual graphs
+#	Fred	060614
+#	*	():Replaced hardcoded rrdtool calls to $rrd which is defined in the scripheader
+#######################################################################################################
+
+ROOT="/root/rrds"
+WEBROOT="/var/www/"
+IMGDIR="rrdgraphs"
+EC=`which echo`
+E_MISSING_DIRECTORY_SOURCE=11;
+E_MISSING_PREREQUISITE_BC=12;
+E_MISSING_FILE_HEADER=1;
+BC="/usr/bin/bc"
+PARAMETERS="-aPNG -z -h100 -w300 -l0 --color BACK#F0F0D000 --color CANVAS#F0F0D000 --color SHADEA#F0F0D000 --color SHADEB#F0F0D000 --color GRID#E0E0E0AA"
+HEADER="/root/scripts/scriptheader"
+GM="/root/scripts/gathermacs"
+STEP=300;
+HEARTBEAT=600;
+
+if [ -f "$HEADER" ];then
+				. "$HEADER"
+else
+				echo "Missing header file. Closing."
+				exit $E_MISSING_FILE_HEADER;
+fi
+BN=$(basename $0)
+LOCKFILE="/tmp/$BN.lock"
+
+#######################################################################################################
+# Functions
+#######################################################################################################
+function lock()
+{
+				if [ -f $LOCKFILE ]
+				then
+								echo "Lockfile $LOCKFILE"
+								exit 1;
+				else
+								touch $LOCKFILE;
+				fi
+}
+
+function unlock()
+{
+				rm -f $LOCKFILE &> /dev/null
+}
+
+#######################################################################################################
+# Execution starts
+#######################################################################################################
+	#######################################################################################################
+	# Sanity checks
+	#######################################################################################################
+	
+if [ ! "$BC" ];then
+				echo "Missing BC ($BC)" > /dev/stderr
+				exit $E_MISSING_PREREQUISITE_BC
+fi
+
+MY_MACS=`/sbin/ifconfig|grep HWaddr|awk '{ORS=",";print $5}'|tr [A-Z] [a-z]|sed -e 's/://g'`','`$EC $IPTRAF_IGNORE_MACS`
+if [ "$1" == "draw" ];then
+	if [ ! -d "${WEBROOT}/${IMGDIR}" ];then
+					mkdir -p ${WEBROOT}/${IMGDIR}
+	fi
+	TIME="12h";
+	shift;
+	count=0;
+	if [ ! "$1" ];then
+		#We have no parameters except 'draw' so assume we want to draw the images for total traffic
+		CMD1="${rrd} graph ${WEBROOT}/${IMGDIR}/in.png ${PARAMETERS} -s e-${TIME} -e now";
+		CMD2="${rrd} graph ${WEBROOT}/${IMGDIR}/out.png ${PARAMETERS} -s e-${TIME} -e now";
+		if [ ! -d "${ROOT}" ];then
+						$EC "Missing source folder"
+						exit $E_MISSING_DIRECTORY_SOURCE;
+		fi
+
+		#Cleanup
+		$FD /root/rrds/ -atime +1|while read file;do
+		$RM -f $file;
+		done
+
+		for file in `ls ${ROOT}/*.rrd`;do
+			VAL=`echo -e "obase=16 \n $count"|bc`;
+			let "LEN=7-`echo $VAL|wc -m`";
+			PAD=`while [ $LEN -gt 0 ];do 
+				echo -n 0;
+				let "LEN-=1";
+			done;`
+			VAL1=${PAD}${VAL}
+			VAL2=${VAL}${PAD}
+			DRAW_MAC=`$EC $(basename $file)|$SD -e 's/.rrd//' -e 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1:\2:\3:\4:\5:\6/'`
+			DRAW_HOST=`$GM host $DRAW_MAC|$TR [A-Z] [a-z]`
+			if [ "$DRAW_HOST" ];then
+##				DRAW_HOST=`$EC $DRAW_MAC|$SD -e 's/.*\(..:..:..\)/\1/'|$TR [A-Z:] [a-z.]`;
+				let "count+=5001";
+				CMD1="$CMD1 DEF:tkbpsin_$count=$file:total_kb_in:AVERAGE CDEF:areatkbps_$count=tkbpsin_$count AREA:areatkbps_$count#${VAL2}aa::STACK LINE1:tkbpsin_$count#${VAL2}ff";
+				CMD2="$CMD2 DEF:tkbpsout_$count=$file:total_kb_out:AVERAGE CDEF:areatkbps_out_$count=tkbpsout_$count AREA:areatkbps_out_$count#${VAL2}aa::STACK LINE1:tkbpsout_$count#${VAL2}ff";
+			fi
+		done;
+		$CMD1 #>/dev/null
+		$CMD2 #>/dev/null
+	else
+		if [ -f "$1" ];then
+			count=$RANDOM
+			VAL=`echo -e "obase=16 \n $count"|bc`;
+			let "LEN=7-`echo $VAL|wc -m`";
+			PAD=`while [ $LEN -gt 0 ];do 
+				echo -n 0;
+				let "LEN-=1";
+			done;`
+			VAL1=${PAD}${VAL}
+			VAL2=${VAL}${PAD}
+			NEW_MAC="`/root/scripts/gathermacs host \`echo $(basename $1)|sed -e 's/.rrd//'|sed -e 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1:\2:\3\:\4:\5:\6/'\`|$TR [A-Z] [a-z]`"
+      if [ "$NEW_MAC" == "" ];then
+				#NEW_MAC="$(basename $1)"
+				#NEW_MAC=`echo $NEW_MAC|sed -e 's/.rrd//' -e 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\4.\5.\6/'`
+				RESULT=22;
+			else
+				RESULT=0;
+			fi
+			if [ "$NEW_MAC" == "===" ];then
+				RESULT=23;
+			else
+				${rrd} graph ${WEBROOT}/${IMGDIR}/$(basename $1).png ${PARAMETERS} -s e-${TIME} -e now DEF:tkbpsin_$count=$1:total_kb_in:AVERAGE CDEF:areatkbpsi_$count=tkbpsin_$count AREA:areatkbpsi_$count#${VAL2}aa:kbps_in LINE1:tkbpsin_$count#${VAL2}ff DEF:tkbpsout_$count=$1:total_kb_out:AVERAGE CDEF:areatkbpso_$count=tkbpsout_$count AREA:areatkbpso_$count#${VAL1}aa:kbps_out LINE1:tkbpsout_$count#${VAL1}ff > /dev/null
+				RESULT=0;
+			fi
+			exit $RESULT;
+		fi
+	fi
+	exit;
+fi
+
+HEADER="/root/scripts/scriptheader"
+E_MISSING_FILE_HEADER=1
+E_MISSING_FILE_INPUTFILE=11
+
+if [ $1 ];then
+	INPUT_FILE="$1"
+else
+	INPUT_FILE="/var/log/iptraf/lan_statistics-1.log"
+fi
+ROOT="/root/rrds"
+let "DELTA=300 + 1680";
+
+lock;
+
+NEWFILE="${INPUT_FILE}.new"
+$MV $INPUT_FILE.8 $INPUT_FILE.9 &>/dev/null
+$MV $INPUT_FILE.7 $INPUT_FILE.8 &>/dev/null
+$MV $INPUT_FILE.6 $INPUT_FILE.7 &>/dev/null
+$MV $INPUT_FILE.5 $INPUT_FILE.6 &>/dev/null
+$MV $INPUT_FILE.4 $INPUT_FILE.5 &>/dev/null
+$MV $INPUT_FILE.3 $INPUT_FILE.4 &>/dev/null
+$MV $INPUT_FILE.2 $INPUT_FILE.3 &>/dev/null
+$MV $INPUT_FILE.1 $INPUT_FILE.2 &>/dev/null
+$MV $INPUT_FILE.0 $INPUT_FILE.1 &>/dev/null
+$MV $INPUT_FILE $INPUT_FILE.0 &>/dev/null
+if [ -f "${INPUT_FILE}" ];then
+	$KL -s SIGUSR1 `${PS} axf|${GR} -v grep|${GR} iptraf|${GR} -v "parse_iptraf_log"|${AW} '{print $1}'` &> /dev/null
+else
+	#$EC "No log file to parse"
+	$KL -s SIGUSR1 `${PS} axf|${GR} -v grep|${GR} iptraf|${GR} -v "parse_iptraf_log"|${AW} '{print $1}'` &>/dev/null
+	#exit $E_MISSING_FILE_INPUTFILE
+fi
+
+function updaterrd(){
+#	$EC update $TIME1:$IN:$OUT:$AVG_KBPS_IN:$AVG_KBPS_OUT:$KBPS_IN:$KBPS_OUT
+	${rrd} update "$ROOT/$MAC.rrd" $TIME1:$IN:$OUT:$AVG_KBPS_IN:$AVG_KBPS_OUT:$KBPS_IN:$KBPS_OUT
+}
+
+function createrrd(){
+	${rrd} create "$ROOT/$MAC.rrd" -b now -s $STEP DS:total_kb_in:COUNTER:$HEARTBEAT:0:U DS:total_kb_out:COUNTER:$HEARTBEAT:0:U DS:avg_kbps_in:COUNTER:$HEARTBEAT:0:U DS:avg_kbps_out:COUNTER:$HEARTBEAT:0:U DS:current_kbps_in:COUNTER:$HEARTBEAT:0:U DS:current_kbps_out:COUNTER:$HEARTBEAT:0:U RRA:AVERAGE:0.5:1:200 RRA:AVERAGE:0.1:18:200 RRA:AVERAGE:0.1:432:200 RRA:AVERAGE:0.1:756:800 RRA:AVERAGE:0.1:2000:1296 RRA:AVERAGE:0.1:52596:600
+}
+
+
+#kill -s SIGUSR1
+#rrdtool create $FILENAME -b now -s 300 DS:total_kb_in:COUNTER:150:0:U DS:total_kb_out:COUNTER:150:0:U DS:avg_kbps_in:COUNTER:150:0:U DS:avg_kbps_out:COUNTER:150:0:U DS:current_kbps_in:COUNTER:150:0:U DS:current_kbps_out:COUNTER:150:0:U RRA:AVERAGE:0.5:1:200 RRA:AVERAGE:0.1:18:200 RRA:AVERAGE:0.1:432:200 RRA:AVERAGE:0.1:756:800 RRA:AVERAGE:0.1:2000:1296 RRA:AVERAGE:0.1:52596:600
+TIME2=`date +%s`
+while read LINE;do
+	#Look for start of report section
+	$EC "$LINE"|$GR ^\*|$GR generated &>/dev/null
+	if [ $? -eq 0 ];then
+		#Found start of report section
+		#Strip date from line to check if it is good enough for new entry
+		FILE_TIME=`$EC "$LINE"|$SD -e "s/.*generated //"`
+		TIME1=`date --date="$FILE_TIME" +%s`
+		if [ $TIME1 -gt $TIME2 ];then
+			let "DIFF=$TIME1-$TIME2";
+		else
+			let "DIFF=$TIME2-$TIME1";
+		fi
+		read LINE
+			while [ 1 ]; do
+				read LINE
+				read LINE
+				if [ `$EC $LINE|$GR "Running time" &> /dev/null;$EC $?` -eq 0 ];then
+					while read LINE;do
+						$EC "$LINE" >> $NEWFILE;
+					done
+					unlock
+					exit 0;
+				fi
+				MAC=`$EC $LINE|$AW '{print $3}'`
+				read LINE
+				IN=`$EC $LINE|$AW '{print $5}'`
+				IN=`${EC} "${IN} / 1"|${BC}`
+				read LINE
+				OUT=`$EC $LINE|$AW '{print $5}'`
+				OUT=`${EC} "${OUT} / 1"|${BC}`
+				read LINE
+				AVG_KBPS_IN=`$EC $LINE|$AW '{print $3}'`
+				AVG_KBPS_OUT=`$EC $LINE|$AW '{print $6}'`
+				AVG_KBPS_IN=`${EC} "${AVG_KBPS_IN} / 1"|${BC}`
+				AVG_KBPS_OUT=`${EC} "${AVG_KBPS_OUT} / 1"|${BC}`
+				read LINE
+				KBPS_IN=`$EC $LINE|$AW '{print $4}'`
+				KBPS_OUT=`$EC $LINE|$AW '{print $7}'`
+				KBPS_IN=`${EC} "${KBPS_IN} / 1"|${BC}`
+				KBPS_OUT=`${EC} "${KBPS_OUT} / 1"|${BC}`
+				if [ -f "$ROOT/$MAC.rrd" ];then
+					#Have rrd
+					$EC $MY_MACS|$GR $MAC&>/dev/null
+					if [ $? -ne 0 ];then
+						updaterrd;
+						if [ $? -eq 0 ];then
+							#Did update
+							$EC YAY &>/dev/null
+						else
+							#No update
+							$EC NAY
+						fi
+					fi
+				else
+					#No rrd
+					if [ -d "$ROOT" ];then
+						#Have dest dir
+						createrrd;
+						if [ $? -eq 0 ];then
+							$EC YAY CREATE > /dev/null
+							if [ `$EC $MY_MACS|$GR $MAC &>/dev/null` ];then
+								updaterrd;
+								if [ $? -eq 0 ];then
+									$EC YAY &> /dev/null
+								else
+									$EC NAY
+								fi
+							fi
+						else
+							$EC NAY CREATE
+						fi
+					else
+						$EC nodir
+						#No dest dir
+						$MD -p "$ROOT"
+						if [ -d "$ROOT" ];then
+							#Have dest dir
+							createrrd;
+							if [ $? -eq 0 ];then
+								#Did create
+								$EC YAY CREATE &> /dev/null
+								updaterrd;
+								if [ $? -eq 0 ];then
+									#Did update
+									$EC YAY &> /dev/null
+								else
+									#No update
+									$EC NAY
+								fi
+							else
+								#Not create
+								$EC NAY CREATE
+							fi
+						else
+							#No dest dir
+							$EC NAY DIR
+						fi
+					fi
+				fi
+			done
+	else
+		#Did not find a start of report section line
+		$EC &>/dev/null
+	fi
+done<"${INPUT_FILE}.0"
+
+unlock;
+
+#Original update
+#	rrdtool update "$ROOT/$MAC.rrd" total_kbps_in:total_kbps_out:avg_kbps_in:avg_kbps_out:current_kbps_in:current_kbps_out N:$IN:$OUT:$AVG_KBPS_IN:$AVG_KBPS_OUT:$KBPS_IN:$KBPS_OUT
+
+###Graph ALL macs in one graph. Still need to figure out how to add the color###
+#count=0;
+#CMD="rrdtool graph /var/www/html/tst.png -s e-1h -e now";
+#for file in `ls /root/rrds/`;do
+#	VAL=`echo -e "obase=16 \n $count"|bc`;
+#	let "LEN=6-`echo $VAL|wc -m`+1";
+#	PAD=`while [ $LEN -gt 0 ];do 
+#		echo -n 0;
+#		let "LEN-=1";
+#	done;`
+#	VAL1=${PAD}${VAL2}
+#	let "count+=1";
+#	VAL2=`echo -e "obase=16 \n $count"|bc`;
+#	let "LEN=6-`echo $VAL2|wc -m`+1";
+#	PAD=`while [ $LEN -gt 0 ];do 
+#		echo -n 0;
+#		let "LEN-=1";
+#	done;`
+#	VAL2=${VAL2}${PAD}
+#	CMD="$CMD DEF:tkbpsin-$count=/root/rrds/$total_kb_in:AVERAGE CDEF:areatkbps-$count=tkbpsin-$count AREA:areatkbps-$count#${VAL}aa:kbpsinpmin-$count LINE1:tkbpsin-$count#${VAL}ff DEF:tkbpsout-$count=/root/rrds/$total_kb_out:AVERAGE CDEF:areatkbps-out-$count=tkbpsout-$count AREA:areatkbps-out-$count#${VAL}aa LINE1:tkbpsout-$count#${VAL}ff:kbpsoutpmin-$count";
+#done;
+#$CMD
+
+####Generating hex codes:###
+#max=20;
+#count=0;
+#while [ $count -lt $max ];do 
+#	VAL=`echo -e "obase=16 \n $count"|bc`;
+#	let "LEN=6-`echo $VAL|wc -m`+1";
+#	while [ $LEN -gt 0 ];do 
+#		echo -n 0;
+#		let "LEN-=1";
+#	done;
+#	echo $VAL;
+#	let "count+=1";
+#done

@@ -1,0 +1,44 @@
+#!/bin/bash
+PATH=$PATH:/sbin:/usr/sbin:/bin:/usr/bin:/usr/X11R6/bin:/usr/local/bin:/usr/local/sbin:./:/root/scripts:/usr/lib/qt3//bin
+
+tc qdisc del root dev eth1 &>/dev/null
+tc qdisc add dev eth1 root handle 1: htb default 10
+tc class add dev eth1 parent 1: classid 1:10 htb rate 100Mbit
+tc class add dev eth1 parent 1: classid 1:20 htb rate 512kbit
+tc class add dev eth1 parent 1: classid 1:30 htb rate 256kbit
+tc class add dev eth1 parent 1: classid 1:40 htb rate 128kbit
+tc class add dev eth1 parent 1: classid 1:50 htb rate 96kbit
+
+tc filter del dev eth1 parent 1: protocol ip prio 5	&>/dev/null
+
+SRC=/root/lists/level_1
+LVL=20
+if [ -f $SRC ];then
+	while read host; do 
+		tc filter add dev eth1 parent 1: protocol ip prio 5 u32 match ip dst `gathermacs ip ${host}`/32 flowid 1:${LVL};if [ $? -eq 0 ];then echo $host on 1:$LVL;fi
+	done < "$SRC"
+fi
+
+SRC=/root/lists/level_2
+LVL=30
+if [ -f $SRC ];then
+	while read host; do 
+		tc filter add dev eth1 parent 1: protocol ip prio 5 u32 match ip dst `gathermacs ip ${host}`/32 flowid 1:${LVL};if [ $? -eq 0 ];then echo $host on 1:$LVL;fi
+	done < "$SRC"
+fi
+
+SRC=/root/lists/level_3
+LVL=40
+if [ -f $SRC ];then
+	while read host; do 
+		tc filter add dev eth1 parent 1: protocol ip prio 5 u32 match ip dst `gathermacs ip ${host}`/32 flowid 1:${LVL};if [ $? -eq 0 ];then echo $host on 1:$LVL;fi
+	done < "$SRC"
+fi
+
+SRC=/root/lists/level_4
+LVL=50
+if [ -f $SRC ];then
+	while read host; do 
+		tc filter add dev eth1 parent 1: protocol ip prio 5 u32 match ip dst `gathermacs ip ${host}`/32 flowid 1:${LVL};if [ $? -eq 0 ];then echo $host on 1:$LVL;fi
+	done < "$SRC"
+fi

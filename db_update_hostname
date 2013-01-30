@@ -1,0 +1,60 @@
+#!/bin/bash
+
+#Load some default settings
+HEADER="/root/scripts/scriptheader"
+if [ -f "$HEADER" ];then
+	.	"$HEADER"
+fi
+
+function get_hostname()
+{
+	#Yay. Try a grep through the DHCP log for a name
+	HOSTNAME=`$GR -i ${MAC} $SYSLOG |$GR "(.*)"|$GR DHCPREQUEST|$GR -v "unknown lease"|$GR -v "ignored \(not authoritative\)."|$TL -n1|$SD -e 's/.*(\(.*\)).*/\1/'|$TR A-Z a-z`
+
+	if [ ! "$HOSTNAME" ];then
+		#Damn. We still need a hostname. Start doing the slow stuff. Try Netbios name resolution (It's a stupid windows world Hehe) First get an IP to do it with,
+		$AR -n|$TR a-z A-Z|$GR $MAC|$AW '{print $1}'|read IP
+		if [ "$IP" != "NULL" ];then
+			HOSTNAME=`$NMB -A "${IP}"|$GR "\<00\>"|$GR -v "GROUP"|$GR -v "MAC.*Address"|$AW '{print $1}'`
+		fi
+	fi
+}
+
+#Get our list of last seen MAC/IP mappings from the DB table.
+#$EC "SELECT lastip,mac FROM ${DBNAME}.${TABLE}"|$SQL|$GR -v "mac"|while read IP MAC;do
+#	HOSTNAME=""
+	#Try a scan through the syslog for DHCP leases.
+#	get_hostname
+#	HOSTNAME=`$EC $HOSTNAME|$TR A-Z a-z`
+
+$GR DHCPACK.*\(.*\) $SYSLOG|$SD -e 's/^.*(\(.*\)).*/\1/'|$GR -v ":"|$ST -u|while read host;do 
+	$GR "$host" $SYSLOG|$GR DHCPACK|$TL -n1|$AW '{print $8" "$10}'|while read IP MAC;do
+		HOSTNAME=$host
+
+		#If we have a hostname, update the DB
+		if [ "$HOSTNAME" ];then
+			#We have a hostname
+			#Do we need to update the IP as well?
+			if [ "$IP" != "NULL" ];then
+				#Update the IP as well
+
+				#First update the first_hostname field if it is empty, but we have a hostname
+				$EC "UPDATE ${DBNAME}.${TABLE} SET first_hostname=last_hostname WHERE first_hostname IS NULL AND last_hostname IS NOT NULL AND mac='${MAC}'"|$SQL
+
+				#Update the previous_hostname field if we have a new hostname
+				$EC "UPDATE ${DBNAME}.${TABLE} SET previous_hostname=last_hostname,lastip='${IP}',last_hostname='${HOSTNAME}',lastseen=NOW() WHERE mac='${MAC}' AND last_hostname collate latin1_bin not like '${HOSTNAME}'"|$SQL
+
+				#Update the IP and last update stamp
+				$EC "UPDATE ${DBNAME}.${TABLE} SET lastip='${IP}',lastseen=NOW() WHERE mac='${MAC}' AND last_hostname='${HOSTNAME}'"|$SQL
+			else
+				#No need to update the IP
+				$EC "UPDATE ${DBNAME}.${TABLE} SET previous_hostname=hostname,hostname='${HOSTNAME}',lastseen=NOW() WHERE mac='${MAC}' AND hostname!='${HOSTNAME}'"|$SQL
+				$EC "UPDATE ${DBNAME}.${TABLE} SET lastseen=NOW() WHERE mac='${MAC}' AND hostname='${HOSTNAME}'"|$SQL
+			fi
+		else
+			if [ "$IP" != "NULL" ];then
+				$EC "UPDATE ${DBNAME}.${TABLE} SET lastip='${IP}',lastseen=NOW() WHERE mac='${MAC}'"|$SQL
+			fi
+		fi
+	done
+done

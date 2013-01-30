@@ -1,0 +1,118 @@
+#!/bin/bash
+###############################################################################################################
+# Changelog
+###############################################################################################################
+#	Fred 062024
+#	*	():Added DT
+#	*	():Modified some defs to string vals and not which commands to speed up sourcing
+###############################################################################################################
+
+MP="/sbin/modprobe"
+RRD="/usr/bin/rrdtool"
+rrd=$RRD
+SYSLOG="/var/log/syslog"
+PI="/bin/ping"
+
+PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/X11R6/bin:./:/root/scripts
+
+AR="/sbin/arp"
+if [ ! -f "$AR" ];then AR=`which arp`;fi
+
+SR="/bin/sort"
+if [ ! -f "$SR" ];then SR=`which sort`;fi
+
+NB="/usr/bin/nmblookup"
+if [ ! -f "$NB" ];then NB=`which nmblookup`;fi
+
+AW="/bin/awk"
+if [ ! -f "$AW" ];then AW=`which awk`;fi
+
+MV="/bin/mv"
+TR="/usr/bin/tr"
+DF="/bin/df"
+DI="/usr/bin/diff"
+PS="/bin/ps"
+KL="/bin/kill"
+BC="/usr/bin/bc"
+VN="/root/scripts/vnstat"
+SQ="/usr/bin/mysql"
+SQL="$SQ"
+ST=$SR
+HD="/usr/bin/head"
+TL="/usr/bin/tail"
+UT="/usr/bin/uptime"
+WC="/usr/bin/wc"
+DT="/bin/date"
+EC="/bin/echo"
+CT="/bin/cat"
+GR="/bin/egrep"
+SD="/bin/sed"
+RM="/bin/rm"
+CL="/usr/bin/column"
+GM="/root/scripts/gathermacs"
+
+ML="/root/scripts/sendEmail"
+IPT="/sbin/iptables"
+IFC="/sbin/ifconfig"
+MD="/bin/mkdir"
+
+#Parameters
+EC_PARM="-e"
+AR_PARM="-n"
+
+#Init variables
+VERBOSITY=0;
+
+#Reset flags
+haveParameter=0;
+isVerbose=0;
+isAdd=0;
+isDelete=0;
+ignoreLeases=1
+doHostfile=1;
+doDHCPD=1;
+byDate=0;
+byTime=0;
+byHost=1;
+byNumber=0;
+
+#Error codes
+E_OK=0;
+E_NO_PARAMETERS=1;
+E_NO_SECOND_PARAMETER=2;
+E_NO_SCRIPT_HEADER=3;
+E_NO_HOSTNAME_PARAMETER=4;
+E_ADD_AND_DELETE=5;
+E_MISSING_PARAMETER=6;
+E_MISSING_SITE_FILE_HEADER=7;
+
+#Colour codes
+R="\\033[m"
+Bl="\\033[0;34m"
+G="\\033[0;32m"
+Re="\\033[0;31m"
+Y="\\033[0;33m"
+M="\\033[0;35m"
+C="\\033[0;36m"
+B="\\033[1;37m"
+BoR="\\033[1;37;41m"
+BoG="\\033[1;37;42m"
+BrBl="\\033[1;34m"
+BrRe="\\033[1;31m"
+BoBl="\\033[1;37;44m"
+
+#Output templates
+S_INFO="${BrBl}==INFO== "
+S_WARN="${B}==WARN== "
+S_ERROR="${BrRe}==ERROR== "
+S_ERR=$S_ERROR
+
+if [ -f "/root/scripts/site.conf" ];then
+	. "/root/scripts/site.conf"
+fi
+
+if [ -f "$CONFFILE" ];then
+	. "$CONFFILE"
+fi
+
+FD="/usr/bin/find"

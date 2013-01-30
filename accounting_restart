@@ -1,0 +1,5 @@
+#!/bin/bash
+DIR=$(dirname $0)
+$DIR/accounting_calculate
+$DIR/accounting_stop
+$DIR/accounting_start

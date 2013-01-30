@@ -1,0 +1,20 @@
+#!/bin/bash
+#Fred
+#060413
+######################
+# Changelog
+######################
+
+IC=`which ifconfig`
+GR=`which grep`
+CT=`which cut`
+
+if [ "$1" != "" ];then
+	if [ "$2" == "out" ];then
+		$IC $1 | $GR bytes|$CT -d":" -f3|$CT -d" " -f1
+	else
+		$IC $1 | $GR bytes|$CT -d":" -f2|$CT -d" " -f1
+	fi
+else
+	$IC eth1 | $GR bytes|$CT -d":" -f2|$CT -d" " -f1
+fi

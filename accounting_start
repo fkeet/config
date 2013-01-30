@@ -1,0 +1,118 @@
+#!/bin/bash
+#1: Missing file $LIST
+COUNTER=0
+
+CONFIG="accounting_config"
+DIR=$(dirname $0)
+[ -x "$DIR/$CONFIG" ] && . "$DIR/$CONFIG"
+
+#Test for list file existance
+if [ ! -f "$LIST" ];then
+				echo "Missing file $LIST";
+				exit 1;
+fi
+
+#Preprocessing
+echo "Getting list of groups"
+groups=`echo "select group_name from $GROUP_TABLE"|$SQL|$GR -v group_name`
+
+#Ceate chains
+echo "Creating chains"
+$IPT -N accounting_out -t mangle &> /dev/null
+$IPT -N accounting_in -t mangle &> /dev/null
+$IPT -N group_limits -t mangle &> /dev/null
+$IPT -N drop -t mangle &> /dev/null
+
+echo "Creating group chains"
+for group in $groups;do
+				$IPT -N group_${group} -t mangle &> /dev/null
+				quota=`echo "select traffic_left from $GROUP_TABLE where group_name='$group'"|$SQL|$GR -v traffic_left`
+				if [ -n "$quota" ];then
+								$IPT -F group_${group} -t mangle 
+								$IPT -A group_${group} -t mangle -m quota --quota $quota -j ACCEPT
+								#Disabled this until connrate kernel sections are stable
+								#$IPT -A group_${group} -t mangle -m connrate --connrate $LIMIT: -j drop
+				fi
+done
+
+#Add new chains to built in chains
+echo "Hooking into standard chains"
+$IPT -D PREROUTING -t mangle -j accounting_in &> /dev/null
+$IPT -I PREROUTING 1 -t mangle -j accounting_in
+$IPT -D POSTROUTING -t mangle -j accounting_out &> /dev/null
+$IPT -I POSTROUTING 1 -t mangle -j accounting_out
+$IPT -D PREROUTING -t mangle -j group_limits &> /dev/null
+$IPT -I PREROUTING 2 -t mangle -j group_limits
+
+#Add hosts to chain
+echo "Adding hosts to chains"
+for host in `$CT $LIST`
+do 
+	#
+	#Incoming traffic
+	#
+	let "COUNTER+=1"
+	MAC=`$GM mac $host`
+	group=`echo "select group_name from $GROUP_TABLE where group_id=(select group_id from $TABLE where mac='$MAC')"|$SQL|$GR -v group_name`
+	#Basic mac test
+	echo $MAC|$GR ":" &>/dev/null 
+	if [ $? -eq 0 ];then
+		if [ "$MAC" ];then
+			if [ -n "$group" ];then
+				while read desc proto ports;do
+					$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports &> /dev/null
+					$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports
+				done<"$PORTS_FILE"
+				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group&> /dev/null
+				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group;
+			else
+				while read desc proto ports;do
+					$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports &> /dev/null
+					$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports
+				done<"$PORTS_FILE"
+				echo "No group for $host ($group)"
+				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits&> /dev/null
+				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits;
+			fi
+		else
+			echo -e "\tMissing mac for $host"
+		fi
+	else
+		echo -e "\tInvalid MAC from $host (`$GM mac $host`) ($GM)"
+	fi
+
+	#
+	#Outgoing traffic
+	#
+	IP=`$GM ip $host`
+	echo $IP|$GR "\." &>/dev/null 
+	if [ $? -eq 0 ];then
+		if [ "$IP" ];then
+			if [ -n "$group" ];then
+				while read desc proto ports;do
+					$IPT -D accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports &> /dev/null
+					$IPT -A accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports
+				done<"$PORTS_FILE"
+				$IPT -D accounting_out -t mangle -d $IP -j group_$group &> /dev/null
+				$IPT -A accounting_out -t mangle -d $IP -j group_$group;
+			else
+				while read desc proto ports;do
+					$IPT -D accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports &> /dev/null
+					$IPT -A accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports
+				done<"$PORTS_FILE"
+				$IPT -D accounting_out -t mangle -d $IP -j group_limits &> /dev/null
+				$IPT -A accounting_out -t mangle -d $IP -j group_limits;
+			fi
+		else
+			echo -e "\tMissing ip for $host"
+		fi
+	else
+		echo -e "\tInvalid IP for $host"
+	fi
+done
+
+echo "Adding polcies to new chains"
+$IPT -D drop -t mangle -j DROP &>/dev/null
+$IPT -A drop -t mangle -j DROP
+
+echo -e "Added $COUNTER hosts to accounting chains"

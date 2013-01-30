@@ -1,0 +1,168 @@
+#!/bin/bash
+#1:Missing ports file
+
+SOURCE="$(dirname $0)/accounting_config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+
+MONTHLY=0;BREAKDOWN=0;FIRST=1;
+DATE="";HOST="";
+DETAIL=0;
+
+TOTAL_IN="format(sum(traffic.traffic_in),0) Traffic_in"
+TOTAL_OUT="format(sum(traffic.traffic_out),0) Traffic_out"
+TOTAL="format(sum(traffic.traffic_out)+sum(traffic.traffic_in),0) Total"
+CURRENT_SPEED="format(sum(traffic.bps_in),0) Current_speed"
+IN="format(traffic.traffic_in,0) Traffic_in"
+OUT="format(traffic.traffic_out,0) Traffic_out"
+
+PORTS_FILE="$(dirname $0)/port_groups"
+if [ ! -f "$PORTS_FILE" ];then exit 1;fi;
+
+function syntax()
+{
+	echo "
+	-h|help		Help
+	-m		By month
+	for <user>	Traffic for <user>
+	on <day>	Traffic for a specific day. Ex: '2008-11-25'
+	groups		Show the list of groups
+	"
+}
+
+function current-speed()
+{
+	echo "select $CURRENT_SPEED from traffic where date=date(now())"|$SQL|column -t
+}
+
+while [ "$1" ];do
+	case "$1" in
+		--current-speed|-c)
+			current-speed;
+			exit;
+			;;
+		-h|help)
+			syntax;
+			exit;
+			;;
+		-m)
+			shift;
+			MONTHLY=1;
+			;;
+		-b)
+			shift
+			BREAKDOWN=1;
+			;;
+		for)
+			shift;
+			HOST=$HOST" "$1;
+			shift;
+			;;
+		on)
+			shift;
+			DATE=$1;
+			shift
+			;;
+		groups)
+			shift
+			echo "select group_id ID,group_name Group_Name,format(traffic_allocated,0) Traffic_total,format(traffic_left,0) Traffic_left from $GROUP_TABLE"|$SQL|column -t
+			exit 0;
+			;;
+		*)
+			if [ $1 ];then
+				HOST=$HOST" "$1;
+			fi
+			shift
+			;;
+	esac
+done
+
+if [ $BREAKDOWN -eq 1 ];then
+	PORTS_TRAFFIC_IN=""
+	PORTS_TRAFFIC_OUT=""
+	TOTAL_PORTS_TRAFFIC_OUT=""
+	while read desc proto ports;do
+		if [ $FIRST -eq 1 ];then
+			PORTS_TRAFFIC_IN=$PORTS_TRAFFIC_IN"$TRAFFIC_TABLE.${desc}_in ${desc}_traffic_in"
+			PORTS_TRAFFIC_OUT=$PORTS_TRAFFIC_OUT"$TRAFFIC_TABLE.${desc}_out ${desc}_traffic_out"
+			TOTAL_PORTS_TRAFFIC_OUT=$TOTAL_PORTS_TRAFFIC_OUT"sum($TRAFFIC_TABLE.${desc}_out) Total_${desc}_traffic_out"
+			TOTAL_PORTS_TRAFFIC_IN=$TOTAL_PORTS_TRAFFIC_IN"sum($TRAFFIC_TABLE.${desc}_in) Total_${desc}_traffic_in"
+			FIRST=0;
+		else
+			PORTS_TRAFFIC_IN=$PORTS_TRAFFIC_IN",$TRAFFIC_TABLE.${desc}_in ${desc}_traffic_in"
+			PORTS_TRAFFIC_OUT=$PORTS_TRAFFIC_OUT",$TRAFFIC_TABLE.{desc}_out ${desc}_traffic_out"
+			TOTAL_PORTS_TRAFFIC_OUT=$TOTAL_PORTS_TRAFFIC_OUT",sum($TRAFFIC_TABLE.${desc}_out) Total_${desc}_traffic_out"
+			TOTAL_PORTS_TRAFFIC_IN=$TOTAL_PORTS_TRAFFIC_IN",sum($TRAFFIC_TABLE.${desc}_in) Total_${desc}_traffic_in"
+		fi
+	done<"$PORTS_FILE"
+fi
+
+if [ "$DATE" == "" ];then DATE=`date +%Y-%m-%d`;fi
+
+if [ $MONTHLY -eq 1 ];then
+	echo "Showing monthly summary"
+	if [ $HOST ] && [ "$HOST" != "all" ];then
+		for HOST in $HOST;do
+			if [ $BREAKDOWN -eq 1 ];then
+							echo break
+			else
+				echo "select date_format(date,'%b') Date,$TOTAL_IN,$TOTAL_OUT,$TOTAL from traffic join macs where month(date)=month(date) and user_id=number and hostname='$HOST' group by user_id,month(date);"|$SQL|column -t
+				echo "------"
+				echo "select $TOTAL_IN,$TOTAL_OUT,$TOTAL from traffic join macs where user_id=number and hostname='$HOST' order by traffic.traffic_in"|$SQL|column -t
+			fi
+		done
+	else
+		if [ $BREAKDOWN -eq 1 ];then
+						echo break
+		else
+			echo "select hostname Hostname,date_format(date,'%b') Date,$TOTAL_IN,$TOTAL_OUT,$TOTAL from traffic join macs where month(date)=month(date) and user_id=number group by user_id,month(date);"|$SQL|column -t
+			echo "------"
+			echo "select $TOTAL_IN,$TOTAL_OUT,$TOTAL from traffic join macs where user_id=number order by traffic.traffic_in"|$SQL|column -t
+		fi
+	fi
+else
+	if [ -n "$HOST" ] && [ "$HOST" != "all" ];then
+		for HOST in $HOST;do
+			echo -e "****************************\nTraffic for $HOST:\n****************************"
+			if [ -n "$DATE" ];then
+				if [ $BREAKDOWN -eq 1 ];then
+						echo break
+				else
+					echo "select date(date) Date,format(traffic.bps_in,0) Bps_in,format(last_bytes_in,0) Latest_traffic_in,$IN,$OUT,format(traffic.bps_out,0) Bps_out,format(last_bytes_out,0) Latest_traffic_out from traffic join macs where user_id=number and hostname='$HOST' and date(date)='$DATE' order by traffic.traffic_in"|$SQL|column -t
+					echo "------"
+					echo "select $TOTAL_IN,$TOTAL_OUT from traffic join macs where user_id=number and hostname='$HOST' and date(date)='$DATE' order by traffic.traffic_in"|$SQL|column -t
+				fi
+			else
+				if [ $BREAKDOWN -eq 1 ];then
+						echo break
+				else
+					echo "select date(date) Date,format(traffic.bps_in,0) Bps_in,format(last_bytes_in,0) Latest_traffic_in,$IN,$OUT,format(traffic.bps_out,0) Bps_out,format(last_bytes_out,0) Latest_traffic_out from traffic join macs where user_id=number and hostname='$HOST' order by traffic.traffic_in"|$SQL|column -t
+					echo "------"
+					echo "select $TOTAL_IN,$TOTAL_OUT from traffic join macs where user_id=number and hostname='$HOST' order by traffic.traffic_in"|$SQL|column -t
+				fi
+			fi
+			echo
+		done
+	else
+		if [ -n "$DATE" ];then
+			if [ $BREAKDOWN -eq 1 ];then
+						echo break
+			else
+				echo "select hostname Hostname,format(traffic.bps_in,0) Bps_in,format(last_bytes_in,0) Latest_traffic_in,$IN,$OUT,format(traffic.bps_out,0) Bps_out,format(last_bytes_out,0) Latest_traffic_out from traffic join macs where user_id=number and date(date)='$DATE' order by traffic.traffic_in"|$SQL|column -t
+				echo "------"
+				echo "select $TOTAL_IN,$TOTAL_OUT from traffic join macs where user_id=number and date(date)='$DATE' order by traffic.traffic_in"|$SQL|column -t
+			fi
+		else
+			if [ $BREAKDOWN -eq 1 ];then
+				echo "select hostname Hostname,date(date) Date,$PORTS_TRAFFIC_OUT,$PORTS_TRAFFIC_IN from traffic join macs where user_id=number order by traffic.traffic_in"|$SQL|column -t
+				echo "------"
+				echo "select $TOTAL_IN,$TOTAL_PORTS_TRAFFIC_IN,$TOTAL_OUT,$TOTAL_PORTS_TRAFFIC_OUT from traffic join macs where user_id=number order by traffic.traffic_in"|$SQL|column -t
+			else
+				if [ $DETAIL -lt 1 ];then
+					echo "select hostname Hostname,date(date) Date,format(traffic.bps_in,0) Bps_in,format(last_bytes_in,0) Latest_traffic_in,$IN,$OUT,format(traffic.bps_out,0) Bps_out,format(last_bytes_out,0) Latest_traffic_out from traffic join macs where user_id=number and date>date(date) order by traffic.traffic_in"|$SQL|column -t
+					echo "------"
+					echo "select $TOTAL_IN,$TOTAL_OUT from traffic join macs where user_id=number order by traffic.traffic_in"|$SQL|column -t
+				fi
+			fi
+		fi
+	fi
+fi

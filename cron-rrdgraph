@@ -1,0 +1,144 @@
+#!/bin/bash
+################################################################################################################
+# Changelog
+################################################################################################################
+# Fred
+#		060413
+#		* Increased upper limit of image to 80k
+#		*	Added color defs for background, canvas, borders
+#	Fred 060419
+#	*	():Modified max draw to 40k from 80k
+#	Fred 060420
+#	* ():Added undercolour variable
+#	* ():Added modularity - see DEF and SECTION variables
+#	*	():Added time variable to enable using the same line for all graphing
+#	Fred 060421
+#	*	():Added more color variables
+#	*	():Disables over/under graphing.
+#	* ():Added kbps out to graph
+#	*	():Moved actual rrd graph line to function so we have only one line to edit for all draws
+#	*	():Moved rra definition to site.conf to facilitate site based settings
+#	*	():Moved FIELD and FIELD2 to site.conf
+#	Fred 060424
+#	* ():Swapped order of objects in section definition to place incoming graph on top
+#	Fred 060510
+#	*	():Changed upper limit on graph to 60k for rrdgraph
+#	Fred 070216
+#	*	():Moved upper limit setting of graph to variable, moved variable to site.conf
+################################################################################################################
+#Variables for rrd
+rrd=`which rrdtool`;
+now=`date +%s`;
+DIR="/var/www/rrdgraphs"
+TITLE="Traffic on Internet interface"
+Y_LEGEND="bits per second"
+E_MISSING_FILE_RRD=11
+HEADER="/root/scripts/scriptheader"
+
+if [ -f "$HEADER" ];then
+	. "$HEADER"
+else
+	echo "Missing header. Closing"
+	exit $E_MISSING_FILE_HEADER;
+fi
+PARAMETERS="-aPNG -r -h100 -w600 -l0 -u${MAX} -z --color BACK#F0F0D000 --color CANVAS#F0F0D000 --color SHADEA#F0F0D000 --color SHADEB#F0F0D000 --color GRID#E0E0E0AA"
+
+#Linecolours RRGG
+LINEOVERCOLOUR="00FF0099" #Colour of line for over limit
+OVERCOLOUR="0018CDbb"	#Colour of line for over limit
+UNDERCOLOUR="0000FF90" #Colour of area under over limit
+TOPLINECOLOUR="A0A0A0ff" #Colour of line to top of area
+
+KBPSIN_TOPLINECOLOUR="0018CDff" #Colour of line to top of kbpsin area
+KBPSIN_AREACOLOUR="0018CDbb" #Color for area kbps in
+
+KBPSOUT_AREACOLOUR="8F480099"
+KBPSOUT_LINECOLOUR="a05050a0" #Colour of line for kbps out
+KBPSOUT_TOPLINECOLOUR="8F4800ff" #Colour of line to top of kbpsin area
+
+#Section definitions
+DEF_1="DEF:kbps=${rra}:$FIELD:AVERAGE"
+	LEGEND_1="In"
+	DEF_1_OBJ_1="CDEF:kbpsarea=kbps AREA:kbpsarea#${KBPSIN_AREACOLOUR}:${LEGEND_1}"
+#	DEF_1_OBJ_2="CDEF:over=kbps,${OVER},MIN AREA:over#${UNDERCOLOUR}"
+	DEF_1_OBJ_3="HRULE:$OVER#$LINEOVERCOLOUR"
+#	DEF_1_OBJ_4="LINE1:kbps#$TOPLINECOLOUR"
+	DEF_1_OBJ_4="LINE1:kbps#${KBPSIN_TOPLINECOLOUR}"
+SECTION_1="${DEF_1} ${DEF_1_OBJ_1} ${DEF_1_OBJ_3} ${DEF_1_OBJ_4}"
+
+#DEF_2="DEF:kbpsout=${rra}:$FIELD2:AVERAGE"
+#	DEF_2_OBJ_1="CDEF:out=kbps,${OVER},MIN AREA:out#${OUTCOLOUR}"
+#SECTION_2="${DEF_2} ${DEF_2_OBJ_1}"
+
+DEF_3="DEF:outkbps=${rra}:$FIELD2:AVERAGE"
+	LEGEND_3="Out"
+	DEF_3_OBJ_1="LINE1:outkbps#${KBPSOUT_LINECOLOUR}"
+	DEF_3_OBJ_2="CDEF:kbpsoutarea=outkbps AREA:kbpsoutarea#${KBPSOUT_AREACOLOUR}:${LEGEND_3}"
+	DEF_1_OBJ_4="LINE1:outkbps#${KBPSOUT_TOPLINECOLOUR}"
+SECTION_3="${DEF_3} ${DEF_3_OBJ_1} ${DEF_3_OBJ_2}"
+
+OBJECTS="${SECTION_3} ${SECTION_1}"
+
+################################################################################################################
+#	Functions
+################################################################################################################
+function draw(){
+				${rrd} graph $DIR/$tofile $PARAMETERS -v "${Y_LEGEND}" -t "${TITLE}" --start e-$reversetime ${OBJECTS} &>/dev/null
+				if [ $? -ne 0 ];then
+								$EC "Error creating $tofile"
+				fi
+}
+
+################################################################################################################
+#	Execution starts here
+################################################################################################################
+if [ ! -d "$DIR" ];then
+	$MD "$DIR"
+fi
+
+	################################################################################################################
+	#	Sanity checks
+	################################################################################################################
+	if [ ! -f "$rra" ];then
+					$EC "Missing input file";
+					exit $E_MISSING_FILE_RRD
+	fi
+	
+tofile="rrd-eth1-minuut.png";
+reversetime="300"
+draw
+
+tofile="rrd-eth1-uur.png";
+reversetime="1h"
+draw
+
+tofile="rrd-eth1-dag.png";
+reversetime="1d"
+draw
+
+tofile="rrd-eth1-week.png";
+reversetime="7d"
+draw
+
+tofile="rrd-eth1-month.png";
+reversetime="28d"
+draw
+
+tofile="rrd-eth1-year.png";
+reversetime="365d"
+draw
+
+rra="/root/scripts/squid-data.rrd";
+FIELD1="datavolume"
+FIELD2="hits"
+
+data_color="FF0000"
+hit_color="00FF00"
+PARAMETERS="-aPNG -rz -h100 -w600"
+
+tofile="squid-300.png";
+#rrdtool graph $PARAMETERS $DIR/$tofile --start e-300 --end N DEF:cache_data=${rra}:$FIELD1:AVERAGE CDEF:data_area=cache_data AREA:data_area#${data_color} DEF:cache_hit=${rra}:$FIELD2:AVERAGE CDEF:hit_area=0,cache_hit,- AREA:hit_area#${hit_color} > /dev/null
+
+tofile="squid-uur.png";
+#rrdtool graph $PARAMETERS $DIR/$tofile --start e-1h --end N DEF:cache_data=${rra}:$FIELD1:AVERAGE CDEF:data_area=cache_data AREA:data_area#${data_color} DEF:cache_hit=${rra}:$FIELD2:AVERAGE CDEF:hit_area=0,cache_hit,- AREA:hit_area#${hit_color} > /dev/null
+

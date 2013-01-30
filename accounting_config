@@ -1,0 +1,19 @@
+#!/bin/bash
+#1:Missing ports file
+SOURCE="/root/scripts/scriptheader"
+[ -f "$SOURCE" ] && . "$SOURCE"
+
+GROUP_TABLE="user_groups"
+TRAFFIC_TABLE="traffic"
+LIMIT=64000
+MAC_TABLE="macs"
+GR="/bin/grep"
+PORTS_FILE="port_groups"
+IPT="/sbin/iptables"
+LIST="/root/lists/full_access"
+CT="/bin/cat"
+GM="/root/scripts/gathermacs"
+GR="/bin/grep"
+DIR=$(dirname $0)
+PORTS_FILE="$DIR/port_groups"
+[ ! -f "$PORTS_FILE" ] && echo "Missing $PORTS_FILE" && exit 1

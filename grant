@@ -1,0 +1,379 @@
+#!/bin/bash
+#Wrapper script to ease admin of users
+#Runs gathermacs and checks if the specified user is available. Adds user to /root/lists/full_access. Regenerates dhcpd.classes. Restarts dhcpd
+##################################################################################################
+# Changelog
+##################################################################################################
+#Fred 060413
+#		Added create chain section in doacl() if there is no chain to add an entry to
+# Fred 060428
+#		* (main):Added check for NULL entry on the mac we found from network. Remove entry if found.
+##################################################################################################
+
+HEADER="/root/scripts/scriptheader"
+AC="/root/scripts/acon"
+FULL_LIST="/root/lists/full_access"
+CLASSFILE="/etc/dhcp3/dhcpd.classes"
+FOUNDIT=0;
+MAC=""
+if [ -f $HEADER ];then
+	. $HEADER
+else
+	echo "Missing header"
+	exit 3;
+fi
+
+#Change default settings
+isVerbose=1
+CLASS="$1"
+HOST="$2";
+shift
+
+SUCCESS=0;
+ML="mail"
+SUBJECT="[Access]";
+AC_AG="/root/scripts/accounting_assign_group";
+
+function mail_admin(){
+	SUCCESS=1;
+	if [ $SUCCESS -eq 1 ];then
+		SUBJECT="$SUBJECT $CLASS,$1,`date +%Y-%m-%d' '%H:%M`"
+		$EC $SUBJECT|$ML -s "$SUBJECT" -a "From:Tigger<root@fns.co.za>" $ADMIN_EMAIL
+		if [ $? -eq 0 ];then $EC "Successful mail to $ADMIN_EMAIL";else $EC "Error mailing to $ADMIN_EMAIL";fi
+	fi
+}
+
+
+function clean_mac (){
+	MAC=`$EC $3 |$SD -e 's/[[:blank:]]*$//'
+	#-e 's/[[:digit:]]*[[:blank:]]//' -e 's/[[:blank:]]*[[:digit:]]//'`
+	MAC=`$EC $MAC | $SD -e 's/\\n$//' -e 's/$//'`
+	$EC $MAC | $GR n &> /dev/null
+	if [ $? -eq 0 ];then
+		#Wat die hel?
+		MAC=`$EC $MAC | $SD -e 's/..$//'`
+		$EC $MAC | $GR n &> /dev/null;
+		if [ $? -eq 0 ];then
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Some weird stuff happening here!!! Can't purfy this MAC: ${MAC}${R}";fi
+		else
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}Advanced purification needed for this MAC:${MAC}${R}";fi
+		fi
+	fi
+	if [ ! "$IP" ];then
+		IP="0.0.0.0";
+	fi
+	
+	$EC $HOST|$GR [[:digit:]]\.[[:digit:]]*\.[[:digit:]]*\.[[:digit:]] &> /dev/null
+	if [ $? -eq 0 ];then
+		IP=$HOST;
+		HOST="NULL"
+		if [ $isVerbose -eq 1 ] && [ $VERBOSITY -gt 1 ];then $EC $EC_PARM "${S_WARN}Reset hostname, as we have an IP as hostname${R}";fi
+	fi
+	
+	IP=`$EC $IP|$SD -e 's/\\n.*//' -e 's/[[:alpha:]]*[[:blank:]]*$//' -e 's/^[[:alpha:]]*[[:blank:]]*//' -e 's/[[:blank:]][[:digit:]]*$//' -e 's/[[:blank:]][[:blank:]]*.*//'`
+	#$SD -e 's/\\n.*//' -e 's/$//' -e 's/^[[:alpha:]]*[[:blank:]]*//'`
+	
+	if [ ! "$HOST" ];then
+		HOST="NULL"
+	fi
+}
+
+function insert ()
+{
+	clean_mac $@
+	IP=$2
+	HOST=$1
+	if [ "$HOST" == "" ];then HOSTS="NULL";fi
+	$EC "INSERT macs (indns,hostname,mac,lastip,lastseen) values('${DNS}','${HOST}','${MAC}','${IP}','${DATE}') ON DUPLICATE KEY UPDATE lastip='${IP}';" | ${SQL}
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}${B}Inserted${BrBl} new entry $HOST MAC:${MAC},IP:${IP}${R}"
+	else $EC "$HOST";fi
+}	
+
+function addtolist() {
+	$EC $EC_PARM "${S_INFO}Adding $1 to $FULL_LIST${R}"
+	if [ -f "$FULL_LIST" ];then
+		echo $1 >> $FULL_LIST;
+	else
+		DIR=`echo $FULL_LIST|sed -e 's/\(.*\/\)[[:alnum:]]*.*/\1/'`
+		$MD -p "$DIR"
+		touch "$FULL_LIST";
+		echo $1 > "$FULL_LIST";
+	fi
+	cat $FULL_LIST|sort -u > /tmp/tmp.txt
+	mv -f /tmp/tmp.txt $FULL_LIST
+}
+function dodhcpd(){
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Updating dhcpd.classes${R}";fi
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding MAC for ${1}${R}";fi
+	MAC=`gathermacs mac $1`
+	if [ ! $MAC ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Can't find MAC for ${1}. Trying ${1}.lan${R}";fi
+		MAC=`gathermacs mac ${1}.lan`;
+	fi
+	if [ ! "$MAC" ] && [ "$3" ];then
+		$EC "Can't find a MAC from the network or database. Using the one you gave me."
+		MAC="$3"
+		if [ "$MAC" == "" ];then
+			$EC "Empty MAC!"
+		fi
+	fi
+
+	#We now have a MAC.
+	if [ $MAC ];then
+		$EC $MAC|$GR [[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]] &> /dev/null
+		if [ $? -eq 0 ];then
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found MAC for ${1}${R}";fi
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Changing $1 to legal entry in ${CLASSFILE}${R}";fi
+			$GR -v 1:${MAC} $CLASSFILE > /tmp/tmp.dhcp
+			$EC "subclass \"${CLASS}\" 1:${MAC};" >> /tmp/tmp.dhcp
+			$MV -f /tmp/tmp.dhcp $CLASSFILE
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Restarting dhcpd with new dhcpd.classes${R}";fi
+			#/etc/init.d/dhcp3-server restart #/etc/init.d/dhcpd restart
+                        /etc/init.d/isc-dhcp-server restart
+		else
+			$EC "E1:	Bad MAC format ($MAC)"
+		fi
+	else
+		$EC "No MAC for ${1} found."
+	fi
+}
+
+function add_to_accounting()
+{
+	MAC=$3
+	host=$1
+	if [ "$MAC" == "" ];then
+		$EC $EC_PARM "${S_INFO}No mac to add to acounting${R}"
+		return;
+	fi
+	#Add hosts to chain
+	$EC $EC_PARM "${S_INFO}Adding host to chains${R}"
+
+	#
+	#Incoming traffic
+	#
+	group=`echo "select group_name from $GROUP_TABLE where group_id=(select group_id from $TABLE where mac='$MAC')"|$SQL|$GR -v group_name`
+	#Basic mac test
+	if [ "$MAC" ];then
+		if [ -n "$group" ];then
+			while read desc proto ports;do
+				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports &> /dev/null
+				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports
+			done<"$PORTS_FILE"
+			$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group&> /dev/null
+			$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group;
+		else
+			$EC $EC_PARM "${S_INFO}No group for $host ($group)${R}"
+			while read desc proto ports;do
+				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports &> /dev/null
+				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports
+			done<"$PORTS_FILE"
+			$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits &> /dev/null
+			$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits;
+		fi
+	else
+		$EC $EC_PARM "${S_INFO}\t01 Missing mac for ${host}${R}"
+	fi
+
+	#
+	#Outgoing traffic
+	#
+	if [ "$IP" ];then
+		if [ -n "$group" ];then
+			while read desc proto ports;do
+				$IPT -D accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports &> /dev/null
+				$IPT -A accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports
+			done<"$PORTS_FILE"
+			$IPT -D accounting_out -t mangle -d $IP -j group_$group &> /dev/null
+			$IPT -A accounting_out -t mangle -d $IP -j group_$group;
+		else
+			while read desc proto ports;do
+				$IPT -D accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports &> /dev/null
+				$IPT -A accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports
+			done<"$PORTS_FILE"
+			$IPT -D accounting_out -t mangle -d $IP -j group_limits &> /dev/null
+			$IPT -A accounting_out -t mangle -d $IP -j group_limits;
+		fi
+	else
+		echo -e "\tMissing ip for $host"
+	fi
+
+	$AC_AG $CLASS $host
+}
+
+function doacl(){
+	$AC add $1
+#	MAC=`gathermacs mac $1`;
+#	if [ $MAC ];then
+#		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Enabling firewall access for ${1}${R}";fi
+#		iptables -D full_access -m mac --mac-source $MAC -j ACCEPT &> /dev/null;
+#		iptables -I full_access -m mac --mac-source $MAC -j ACCEPT &> /dev/null;
+#		if [ $? -ne 0 ];then
+#			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Creating chain for first entry${R}";fi
+#			iptables -N full_access;
+#			iptables -I full_access -m mac --mac-source $MAC -j ACCEPT &> /dev/null;
+#			if [ $? -ne 0 ];then
+#							$EC $EC_PARM "${S_ERR}Unable to add the entry to the firewall...${R}";
+#			fi
+#		fi
+#	else
+#					if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_ERR}No mac for ${1}. Not added to firewall.${R}";fi
+#	fi
+}
+
+if [ ! $1 ];then
+	$EC $EC_PARM "${S_ERR}No parameters. Please provide a host name as parameter${R}";
+	$EC $EC_PARM "${S_INFO}Running verification mode${R}"
+	CLASSENTRIES=`$GR "\"${CLASS}\"" $CLASSFILE|$WC -l`
+	LISTENTRIES=`$CT $FULL_LIST|$WC -l`
+	if [ $CLASSENTRIES -ne $LISTENTRIES ];then
+		$EC $EC_PARM "${S_WARN}Amount of users in full_list is unequal to amount of authorized users.${R}";
+		if [ $CLASSENTRIES -lt $LISTENTRIES ];then
+			$EC $EC_PARM "${S_INFO}More entries in full_list.${R}";
+			for HOST in `$CT $FULL_LIST`;do
+				$EC -n "."
+				MAC=`gathermacs mac $HOST`;
+				if [ ! $MAC ];then
+					$EC $EC_PARM "${S_WARN}Did not find entry for ${HOST} in database!${R}";
+				else
+					$GR -i $MAC $CLASSFILE|$GR "\"${CLASS}\"" &> /dev/null
+					if [ $? -ne 0 ];then
+						$EC $EC_PARM "${S_WARN}Did not find entry for ${HOST} in dhcpd.classes${R}";
+					fi
+				fi
+			done
+		else
+			$EC $EC_PARM "${S_INFO}More entries in dhcpd.classes.${R}";
+			for MAC in `$GR "\"${CLASS}\"" $CLASSFILE|$AW '{print $3}'|$SD -e 's/^1://' -e 's/;$//'`; do
+				$EC -n "."
+				HOST=`gathermacs host $MAC`;
+				if [ $HOST ];then
+					$GR -i $HOST $FULL_LIST &> /dev/null
+					if [ $? -ne 0 ];then
+						$EC $EC_PARM "${S_WARN}Did not find full_access entry for ${HOST}${R}";
+					fi
+				else
+					$EC $EC_PARM "${S_INFO}Found an empty entry${R}"
+				fi
+			done
+		fi
+	else
+		for MAC in `$GR "\"${CLASS}\"" $CLASSFILE|$AW '{print $3}'|$SD -e 's/^1://' -e 's/;$//'`; do
+			HOST=`gathermacs host $MAC`;
+			$GR -i $HOST $FULL_LIST
+			if [ $? -ne 0 ];then
+				$EC $EC_PARM "${S_WARN}Did not find full_access entry for ${HOST}${R}";
+			fi
+		done
+	fi
+	exit 4;
+fi
+
+grep $1 $FULL_LIST &> /dev/null
+if [ $? -eq 0 ];then
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}$1 is already an authenticated user. If this is wrong, run unauthenticate, and then rerun authenticate${R}";fi;
+	exit 6;
+fi
+
+#First see if we have it in the DB
+if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Scanning database${R}";fi
+gathermacs find $1 |grep -i $1 &>/dev/null
+if [ $? -eq 0 ];then
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Done scanning database${R}";fi
+	$EC $EC_PARM "${S_INFO}Found $1 in database${R}";
+	mac=`gathermacs mac $1`
+	if [ ! $mac ];then
+		$EC $EC_PARM "${S_INFO}No entry for $1 in database${R}";
+	fi
+	#ILLEGALBROADCAST=`echo $ILLEGALNET|sed -e 's/\([[:digit:]]*\)\.\([[:digit:]]*\)\.\([[:digit:]]*\)\.\([[:digit:]]*\)\/[[:digit:]]*/\1\.\2\.\3\.255/'`
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Scanning $ILLEGALNET segment for host${R}";fi
+	ip=`nmblookup -B ${ILLEGALBROADCAST} $1|grep "<00>"|awk '{print $1}'`
+	if [ ! "$ip" ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Did not find it on the 192.168.3.0/24 segment${R}";fi
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Scanning 192.168.0.0/24 segment for host${R}";fi
+		ip=`nmblookup $1|grep "<00>"|awk '{print $1}'`
+		if [ ! "$ip" ];then
+			$EC $EC_PARM "${S_WARN}I can't find the host you specified currently on the network. Make sure their firewall is not on. Unable to verify that the entry in the databse is the correct host currently up. Adding it in any case using the mac from the database${R}"
+			FOUNDIT=1;
+		else
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found it on the 192.168.0.0/24 segment${R}";fi
+		fi
+	else
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found it on the 192.168.3.0/24 segment${R}";fi
+	fi
+	if [ "$ip" ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding a mac for ${ip} from the network${R}";fi;
+		nmblookup -A "${ip}" &> /dev/null
+		if [ $2 ];then
+						mac2=`arp $2|grep ether|awk '{print $3}'`
+						if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Using passed IP:${ip}${R}";fi;
+		else
+						mac2=`arp $ip|grep ether|awk '{print $3}'`
+		fi
+		if [ ! $mac2 ];then
+			$EC $EC_PARM "${S_INFO}Did not find a mac for ${ip}${R}";
+		fi
+	else
+		mac2="";
+	fi
+
+	if [ "$mac" == "$mac2" ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}(03)MAC in database same as one currently on network${R}";fi;
+		if [ "$mac" == "" ];then
+			insert $@
+		fi
+		addtolist $@;
+		dodhcpd $@;
+		doacl $@;
+		add_to_accounting $@;
+		mail_admin $@;
+	else
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_WARN}MAC in database not the same as one currently on network${R}";fi;
+		if [ $FOUNDIT -eq 0 ];then
+			if [ $mac2 ];then
+				gathermacs host $mac2|grep "NULL" &> /dev/null
+				if [ $? -eq 0 ];then
+								$EC $EC_PARM "${S_WARN}Removed current entry for this mac from database. It appears to be a NULL entry.${R}"
+								gathermacs remove `gathermacs find $mac2|awk '{print $1}'`
+				fi
+				gathermacs -s $@| grep -i $1 &> /dev/null;
+				if [ $? -eq 0 ];then
+					$EC $EC_PARM "${S_INFO}Added to database${R}";
+					addtolist $@;
+					dodhcpd $@;
+					doacl $@;
+					add_to_accounting $mac;
+					mail_admin $@;
+				fi
+			else
+				$EC $EC_PARM "${S_ERR}Can't find a MAC in the database, or on the network for ${1}${R}"
+				echo $mac
+				echo $ip
+				echo $mac2
+				exit 2;
+			fi
+		else
+			addtolist $@
+			dodhcpd $@
+			doacl $@
+			add_to_accounting $mac;
+			mail_admin $@;
+		fi
+	fi
+else
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Done scanning database${R}";fi
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}No entry for $1 in database${R}";fi
+	##ping -q -c1 -w1 `nmblookup $1|grep "<00>"|awk '{print $1}'` &> /dev/null
+	##gathermacs | grep -i $1
+	gathermacs -s $@|grep -i $1 &> /dev/null
+	if [ $? -eq 0 ];then
+		$EC $EC_PARM "${S_INFO}Added $1 to database${R}";
+		addtolist $@;
+		dodhcpd $@;
+		doacl $@;
+		mail_admin $@;
+	else
+		echo "Not found or added"
+		exit 1;
+	fi
+fi
