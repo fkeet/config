@@ -1,0 +1,18 @@
+ACCEPT	loc	fw	udp		53
+ACCEPT	loc	fw	tcp		19150
+ACCEPT	all	fw	tcp		80,2322
+ACCEPT	all	fw	tcp		5222
+ACCEPT	loc	fw	tcp		netbios-dgm,netbios-ns,microsoft-ds
+ACCEPT	loc	fw	udp		netbios-dgm,netbios-ns,microsoft-ds
+ACCEPT	loc	fw	udp		-																		netbios-ns
+ACCEPT	loc	fw	icmp
+ACCEPT	loc	fw	tcp		4111
+ACCEPT	all	fw	icmp	8
+ACCEPT	net	fw	tcp		143
+ACCEPT	net	fw	tcp		110
+ACCEPT	net	fw	tcp		25
+ACCEPT	loc:192.168.6.1		fw	tcp	25
+ACCEPT	loc:192.168.12.1,192.168.10.1	fw	tcp	3128
+ACCEPT	loc:192.168.12.1,192.168.10.1	fw	udp	3130
+ACCEPT	all	fw	tcp		3000
+ACCEPT	all	fw	tcp		21,23

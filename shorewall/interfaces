@@ -1,0 +1,4 @@
+net	eth0	detect	nosmurfs,routefilter,norfc1918,logmartians,tcpflags,blacklist
+#net	ppp0	detect	nosmurfs,routefilter,norfc1918,logmartians,tcpflags,blacklist
+loc	eth1	detect	nosmurfs,tcpflags
+net ppp0

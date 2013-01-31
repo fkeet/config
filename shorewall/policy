@@ -1,0 +1,4 @@
+fw	all	ACCEPT
+net	all	DROP
+loc	all	DROP
+all	all	DROP
