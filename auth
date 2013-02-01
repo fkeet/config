@@ -1,0 +1,6 @@
+#!/bin/bash
+#Wrapper script to ease admin of users
+GT="/root/scripts/grant"
+CLASS="studio"
+
+$GT $CLASS $@
