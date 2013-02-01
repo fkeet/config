@@ -1,0 +1,223 @@
+h1 	{
+	color:rgb(200,200,200);			/*Nice Blue*/
+	font-family:verdana,sans-serif;		/*Set the font - Go for the sans-serif type*/
+	background:transparent /*rgb(240,240,200);*/		/*Gray background*/
+	line-height:1.4em;			/*Set line height to 1.5 times font size. Give us some room*/
+	font-variant:small-caps;		/*Add some classiness to the heading...*/
+	text-align:left;
+	padding-right:0;
+	margin-right:0;
+	border-right:0;
+	border-left:0;
+	margin-left:0;
+	padding-left:1em;
+	border-top:1px;
+	border-bottom:1px;
+	border-style:dotted;
+}
+b {
+	font-size:3em;
+	position:relative;
+/*	left:-25px;
+	top:-10px;
+*/	background:transparent;
+	color:rgb(150,150,150);
+}
+h1 b {
+	position:relative;
+	left:-25px;
+	top:-10px;
+	background:transparent;
+	color:rgb(150,150,150);
+}
+body {
+	background:#ffd;
+	font-family:verdana,sans-serif;		/*Set the font - Go for the sans-serif type*/
+	background:transparent /*rgb(240,240,200);*/		/*Gray background*/
+	font-variant:small-caps;		/*Add some classiness to the heading...*/
+	text-align:left;
+}
+/*ul {
+		list-style-image: url(rems2/images/Bullet_1.png);
+		font-position
+}*/
+/*#listbase {
+	font-variant:small-caps;
+	font-weight:bold;
+	border: 1px solid #000;
+	margin: 1em;
+	width:10em;
+}*/
+#inline_list {
+		border:1px solid #000;
+		margin:1em;
+		width:80%;
+		padding:5px;
+		font-family:verdana, sans-serif;
+}
+#inline_list p {
+		display:inline;
+}
+#inline_list ul, #inline_list li {
+		display:inline;
+		margin:0;
+		padding:0;
+		color:#339;
+		font-weight:bold;
+		list-style:none;
+		font-variant:small-caps;
+}
+#inline_list ul li:after {
+		content: ", ";
+}
+#inline_list ul li.last:after {
+		content: ". ";
+}
+a {
+		text-decoration:none;
+		font-variant:small-caps;
+		font-size:12pt;
+}
+a:hover {
+		background:transparent;
+		text-decoration:none;
+}
+a:visited {
+		color:rgb(100,100,100);
+}
+#h_contain {
+		padding:1px;
+		border:1px solid #000;
+		margin-bottom:none;
+		padding-bottom:none;
+}
+#pipe ul li {
+		margin-left:0px;
+		padding:1px 5px;
+		border-left: 1px solid #000;
+		list-style:none;
+		display:inline;
+		clear:both;
+		z-index:0;
+}
+#pipe ul li.first {
+		margin-left:0;
+		border-left:none;
+		list-style:none;
+		display:inline;
+		clear:both;
+		z-index:0;
+}
+#tabs ul {
+		margin-left:0;
+		padding-left:0;
+		display:inline;
+		clear:both;
+		z-index:0;
+}
+#tabs ul li {
+		margin-left:0;
+		margin-bottom:0;
+		padding:2px 15px 5px;
+		border:1px solid #000;
+		list-style:none;
+		display:inline;
+		clear:both;
+		z-index:1;
+}
+#tabs ul li.here {
+		border-bottom:1px solid #ffc;
+		list-style:none;
+		display:inline;
+		clear:both;
+		z-index:1;
+}
+#footer {
+		font-family:verdana, sans-serif;
+		font-size:8pt;
+		font-variant:small-caps;
+		clear:both;
+		bottom:0;
+		left:0;
+		border-top:1px dotted #999;
+		background-color:transparent;
+}
+img {
+		z-index:0;
+		float:left;
+		margin: 0 0 10px 10px;
+}
+ #navlist
+ {
+		 padding: 0 1px 1px;
+		 margin-left: 0;
+		 font: bold 12px Verdana, sans-serif;
+		 background: gray;
+		 width: 13em;
+ }
+
+ #navlist li
+ {
+		 list-style: none;
+		 margin: 0;
+		 border-top: 1px solid gray;
+		 text-align: left;
+ }
+
+ #navlist li a
+ {
+		 display: block;
+		 padding: 0.25em 0.5em 0.25em 0.75em;
+		 border-left: 1em solid #AAB;
+		 background: #CCD;
+		 text-decoration: none;
+ }
+
+ #navlist li a:link { color: #448; }
+ #navlist li a:visited { color: #667; }
+
+ #navlist li a:hover
+ {
+		 border-color: #FE3;
+		 color: #FFF;
+		 background: #332;
+ }
+#breadcrumbs
+{
+				text-align:right;
+				float:right;
+				display:inline;
+}
+#breadcrumbs a:hover
+{
+				background:#ddd;
+				color:#000;
+				border-top:1px solid #000;
+				border-bottom:1px solid #000;
+}
+#heading
+{
+		font-size:16px;
+		font-variant:small-caps;		/*Add some classiness to the heading...*/
+		border:1px dotted #fff;
+}
+#left{
+	text-align:left;
+	font-variant:small-caps;
+	float:left;
+	clear:both;
+	background:transparent;
+	/*border:1px dotted #111;*/
+	width:100%;
+}
+#content{
+	text-align:left;
+	float:right;
+	clear:both;
+	background:#fff;
+	border:1px dotted #111;
+}
+#header {
+	float:left;
+	clear:left;
+}
