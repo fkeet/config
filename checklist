@@ -1,0 +1,5 @@
+apt-get install bind9 dhcpd
+cp config/dhcp/dhcp* /etc/dhcp
+cp config/dhcp3 /etc/
+restart isc-dhcp-server
+apt-get install squid shorewall
