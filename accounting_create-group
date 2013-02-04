@@ -1,0 +1,17 @@
+#!/bin/bash
+SOURCE="/root/scripts/accounting_config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+GROUP_TABLE="user_groups"
+GR="/bin/grep"
+
+#***********
+#Exit codes:
+#1:missing parameters
+#***********
+
+if [ -n "$1" ] && [ -n "$2" ];then
+				echo "insert into $GROUP_TABLE (group_name,traffic_allocated,traffic_left) values ('$1','$2','$2')"|$SQL 2>&1 |$GR 1062 &>/dev/null && if [ $? -eq 0 ];then echo "There appears to already be such a group. Try another name or remove this one first";fi
+else
+	echo "Usage: $(basename $0) <group_name> <group_traffic_limit>"
+	exit 1
+fi

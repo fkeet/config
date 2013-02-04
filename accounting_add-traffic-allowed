@@ -1,0 +1,43 @@
+#!/bin/bash
+
+#ERROR CODES
+#1:Missing parameter
+#2:Missing $DIR/$CONFIG
+
+SOURCE="/root/scripts/accounting.config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+GROUP_TABLE="user_groups"
+GR="/bin/grep"
+
+CONFIG="accounting_config"
+DIR=$(dirname $0)
+if [ -x "$DIR/$CONFIG" ];then
+ . "$DIR/$CONFIG"
+else
+	echo "Missing $DIR/$CONFIG"
+	exit 2
+fi
+
+NEWLEFT=0;CHANGE=0;
+
+if [ "$1" ] && [ "$2" ];then
+	
+	#Get old limit
+	LEFT=`echo "select traffic_left from $GROUP_TABLE where group_name='$1'"|$SQL|$GR -v traffic_left`
+	
+	let "CHANGE=$2"
+	
+	let "NEWLEFT=$LEFT+CHANGE"
+	
+	echo "update $GROUP_TABLE set traffic_left=$NEWLEFT where group_name = '$1' "|$SQL
+	
+	echo "Updating firewall"
+	$IPT -D group_${1} 1 -t mangle
+	$IPT -I group_${1} 1 -t mangle -m quota --quota $NEWLEFT -j ACCEPT
+
+else
+	echo "Missing parameter"
+	exit 1;
+fi
+
+echo done.

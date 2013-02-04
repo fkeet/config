@@ -11,7 +11,6 @@ DETAIL=0;
 TOTAL_IN="format(sum(traffic.traffic_in),0) Traffic_in"
 TOTAL_OUT="format(sum(traffic.traffic_out),0) Traffic_out"
 TOTAL="format(sum(traffic.traffic_out)+sum(traffic.traffic_in),0) Total"
-CURRENT_SPEED="format(sum(traffic.bps_in),0) Current_speed"
 IN="format(traffic.traffic_in,0) Traffic_in"
 OUT="format(traffic.traffic_out,0) Traffic_out"
 
@@ -29,17 +28,8 @@ function syntax()
 	"
 }
 
-function current-speed()
-{
-	echo "select $CURRENT_SPEED from traffic where date=date(now())"|$SQL|column -t
-}
-
 while [ "$1" ];do
 	case "$1" in
-		--current-speed|-c)
-			current-speed;
-			exit;
-			;;
 		-h|help)
 			syntax;
 			exit;

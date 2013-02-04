@@ -19,8 +19,10 @@ if [ ! -f "$PORTS_FILE" ];then
 	exit 1;
 fi
 
+ACC_OUT="tcpos"
+
 #get all the traffic TO the ip (host traffic in)
-$IPT -x -n -Z -vL accounting_out -t mangle|$AW '{print $2" "$9" "$12}'|$GR -v ^0|$GR -v "accounting_out"|while read line
+$IPT -x -n -Z -vL $ACC_OUT -t mangle|$AW '{print $2" "$9" "$12}'|$GR -v ^0|$GR -v "$ACC_OUT"|while read line
 do
 	bytes=`echo $line|$AW '{print $1}'`
 	ip=`echo $line|$AW '{print $2}'`
@@ -33,10 +35,9 @@ do
 	if [ $ip ] && [ $bytes ] && [ "$ip" != "source" ] && [ "$bytes" != "bytes" ];then
 		let "bps=$bytes/$HEARTBEAT";
 		#Add to total traffic_in
-		#First see if we can find a user id
-		ID=`echo "select count(number) from $USER_TABLE where lastip='$ip' and lastseen > now()-7200"|$SQL`
-		if [ "$ID" == "0" ];then
-			$EC $ID
+		COUNT=`echo "select count(number) from $USER_TABLE where lastip='$ip' and lastseen>now()-7200"|$SQL`
+		if [ "$COUNT" == "0" ];then
+			echo $COUNT
 			break;
 		fi
 		echo "insert into $TABLE (user_id,date,traffic_in,bps_in,last_bytes_in) values ((select number from $USER_TABLE where lastip='$ip' and lastseen>now()-7200 limit 1),current_date(),$bytes,$bps,$bytes) on duplicate key update traffic_in=traffic_in+$bytes,bps_in=$bps,last_bytes_in=$bytes"|$SQL &>/dev/null
@@ -59,7 +60,7 @@ do
 done
 
 #get all the traffic FROM the mac (host traffic out)
-$IPT -x -n -Z -vL accounting_in -t mangle|$AW '{print $2" "$11}'|$GR -v ^0|$GR -v "accounting_in"|while read line
+$IPT -x -n -Z -vL $ACC_IN -t mangle|$AW '{print $2" "$11}'|$GR -v ^0|$GR -v "$ACC_IN"|while read line
 do
 	bytes=`echo $line|$AW '{print $1}'`
 	mac=`echo $line|$AW '{print $2}'`

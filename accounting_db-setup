@@ -1,0 +1,26 @@
+#!/bin/bash
+CONFIG="accounting_config"
+DIR=$(dirname $0)
+if [ -f "$DIR/$CONFIG" ];then . "$DIR/$CONFIG";else exit 1;fi
+FIRST=1;
+
+./check > /dev/null
+if [ $? -eq 0 ];then
+				echo "create table $TRAFFIC_TABLE (user_id smallint,date datetime,traffic_in bigint default 0,traffic_out bigint default 0,primary key (user_id,date),bps_in int default 0,bps_out int default 0,last_bytes_in int default 0,last_bytes_out int default 0);"|$SQL
+				echo "create table $GROUP_TABLE (group_id int auto_increment not null,group_name varchar(128) not null unique,primary key (group_id,group_name),traffic_allocated bigint default 0,traffic_left bigint default 0);"|$SQL
+				echo "alter table $TABLE add (group_id int default null)"|$SQL
+
+				QUERY="alter table $TRAFFIC_TABLE add (";
+				while read desc proto ports;do
+								if [ $FIRST -eq 1 ];then
+												QUERY=$QUERY"${desc}_in bigint default 0,${desc}_out bigint default 0"
+												FIRST=0;
+								else
+												QUERY=$QUERY",${desc}_in bigint default 0,${desc}_out bigint default 0"
+								fi
+				done<"$PORTS_FILE"
+				QUERY=$QUERY");"
+				echo "$QUERY"|$SQL
+else
+				./check
+fi

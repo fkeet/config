@@ -8,12 +8,10 @@ TRAFFIC_TABLE="traffic"
 LIMIT=64000
 MAC_TABLE="macs"
 GR="/bin/grep"
-PORTS_FILE="port_groups"
+PORTS_FILE="/root/scripts/port_groups"
 IPT="/sbin/iptables"
 LIST="/root/lists/full_access"
 CT="/bin/cat"
 GM="/root/scripts/gathermacs"
 GR="/bin/grep"
-DIR=$(dirname $0)
-PORTS_FILE="$DIR/port_groups"
 [ ! -f "$PORTS_FILE" ] && echo "Missing $PORTS_FILE" && exit 1

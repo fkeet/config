@@ -18,8 +18,10 @@ groups=`echo "select group_name from $GROUP_TABLE"|$SQL|$GR -v group_name`
 
 #Ceate chains
 echo "Creating chains"
-$IPT -N accounting_out -t mangle &> /dev/null
-$IPT -N accounting_in -t mangle &> /dev/null
+ACC_OUT="tcpos"
+ACC_IN="tcpre"
+$IPT -N $ACC_OUT -t mangle &> /dev/null
+$IPT -N $ACC_IN -t mangle &> /dev/null
 $IPT -N group_limits -t mangle &> /dev/null
 $IPT -N drop -t mangle &> /dev/null
 
@@ -37,10 +39,10 @@ done
 
 #Add new chains to built in chains
 echo "Hooking into standard chains"
-$IPT -D PREROUTING -t mangle -j accounting_in &> /dev/null
-$IPT -I PREROUTING 1 -t mangle -j accounting_in
-$IPT -D POSTROUTING -t mangle -j accounting_out &> /dev/null
-$IPT -I POSTROUTING 1 -t mangle -j accounting_out
+$IPT -D PREROUTING -t mangle -j $ACC_IN &> /dev/null
+$IPT -I PREROUTING 1 -t mangle -j $ACC_IN
+$IPT -D POSTROUTING -t mangle -j $ACC_OUT &> /dev/null
+$IPT -I POSTROUTING 1 -t mangle -j $ACC_OUT
 $IPT -D PREROUTING -t mangle -j group_limits &> /dev/null
 $IPT -I PREROUTING 2 -t mangle -j group_limits
 
@@ -60,25 +62,25 @@ do
 		if [ "$MAC" ];then
 			if [ -n "$group" ];then
 				while read desc proto ports;do
-					$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports &> /dev/null
-					$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports
+					$IPT -D $ACC_IN -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports &> /dev/null
+					$IPT -A $ACC_IN -t mangle -m mac --mac-source $MAC -j group_$group -p $proto -m multiport --dports $ports
 				done<"$PORTS_FILE"
-				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_$group&> /dev/null
-				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_$group;
+				$IPT -D $ACC_IN -t mangle -m mac --mac-source $MAC -j group_$group&> /dev/null
+				$IPT -A $ACC_IN -t mangle -m mac --mac-source $MAC -j group_$group;
 			else
 				while read desc proto ports;do
-					$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports &> /dev/null
-					$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports
+					$IPT -D $ACC_IN -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports &> /dev/null
+					$IPT -A $ACC_IN -t mangle -m mac --mac-source $MAC -j group_limits -p $proto -m multiport --dports $ports
 				done<"$PORTS_FILE"
 				echo "No group for $host ($group)"
-				$IPT -D accounting_in -t mangle -m mac --mac-source $MAC -j group_limits&> /dev/null
-				$IPT -A accounting_in -t mangle -m mac --mac-source $MAC -j group_limits;
+				$IPT -D $ACC_IN -t mangle -m mac --mac-source $MAC -j group_limits&> /dev/null
+				$IPT -A $ACC_IN -t mangle -m mac --mac-source $MAC -j group_limits;
 			fi
 		else
 			echo -e "\tMissing mac for $host"
 		fi
 	else
-		echo -e "\tInvalid MAC from $host (`$GM mac $host`) ($GM)"
+		echo -e "\tInvalid MAC from $host"
 	fi
 
 	#
@@ -90,18 +92,18 @@ do
 		if [ "$IP" ];then
 			if [ -n "$group" ];then
 				while read desc proto ports;do
-					$IPT -D accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports &> /dev/null
-					$IPT -A accounting_out -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports
+					$IPT -D $ACC_OUT -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports &> /dev/null
+					$IPT -A $ACC_OUT -t mangle -d $IP -j group_$group -p $proto -m multiport --sports $ports
 				done<"$PORTS_FILE"
-				$IPT -D accounting_out -t mangle -d $IP -j group_$group &> /dev/null
-				$IPT -A accounting_out -t mangle -d $IP -j group_$group;
+				$IPT -D $ACC_OUT -t mangle -d $IP -j group_$group &> /dev/null
+				$IPT -A $ACC_OUT -t mangle -d $IP -j group_$group;
 			else
 				while read desc proto ports;do
-					$IPT -D accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports &> /dev/null
-					$IPT -A accounting_out -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports
+					$IPT -D $ACC_OUT -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports &> /dev/null
+					$IPT -A $ACC_OUT -t mangle -d $IP -j group_limits -p $proto -m multiport --sports $ports
 				done<"$PORTS_FILE"
-				$IPT -D accounting_out -t mangle -d $IP -j group_limits &> /dev/null
-				$IPT -A accounting_out -t mangle -d $IP -j group_limits;
+				$IPT -D $ACC_OUT -t mangle -d $IP -j group_limits &> /dev/null
+				$IPT -A $ACC_OUT -t mangle -d $IP -j group_limits;
 			fi
 		else
 			echo -e "\tMissing ip for $host"

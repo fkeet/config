@@ -1,0 +1,16 @@
+#!/bin/bash
+
+#ERROR CODES
+#1:Missing parameter
+
+SOURCE="/root/scripts/accounting.config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+GROUP_TABLE="user_groups"
+GR="/bin/grep"
+
+if [ "$1" ] && [ "$2" ];then
+	echo "update $GROUP_TABLE set traffic_left=traffic_left+$2 where group_name = '$1' "|$SQL
+else
+	echo "Missing parameter"
+	exit 1;
+fi

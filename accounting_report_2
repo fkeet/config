@@ -1,0 +1,25 @@
+#!/bin/bash
+
+SOURCE="$(dirname $0)/accounting_config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+MONTHLY=0;BREAKDOWN=0;FIRST=1;
+DATE="";HOST="";DETAIL=0;
+
+TOTAL_IN="format(sum(traffic.traffic_in),0) Traffic_in"
+TOTAL_OUT="format(sum(traffic.traffic_out),0) Traffic_out"
+TOTAL="format(sum(traffic.traffic_out)+sum(traffic.traffic_in),0) Total"
+IN="format(traffic.traffic_in,0) Traffic_in"
+OUT="format(traffic.traffic_out,0) Traffic_out"
+HOST="$MAC_TABLE.hostname Workstation_name"
+GROUP="$MAC_TABLE.group_id Station_group"
+GROUP_NAME="$GROUP_TABLE.group_name Group_name"
+DAY="date($TRAFFIC_TABLE.date) Date"
+USERID="macs.number"
+USERNUMBER="traffic.user_id"
+
+PORTS_FILE="$(dirname $0)/port_groups"
+if [ ! -f "$PORTS_FILE" ];then exit 1;fi;
+for group in `echo "select distinct group_id from $GROUP_TABLE"|$SQL|$GR -v group_id`;do
+	echo "select $DAY,$GROUP_NAME,$HOST,$TOTAL_IN,$TOTAL_OUT,$TOTAL from $TRAFFIC_TABLE join $MAC_TABLE join $GROUP_TABLE where $USERID=$USERNUMBER and $MAC_TABLE.group_id=$group group by $USERID"|$SQL|column -t
+	echo "select $TOTAL_IN,$TOTAL_OUT,$TOTAL from $TRAFFIC_TABLE"|$SQL
+done

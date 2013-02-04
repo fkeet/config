@@ -1,0 +1,25 @@
+#!/bin/bash
+#2:Missing $DIR/$CONFIG
+#1:Missing parameter
+
+SOURCE="/root/scripts/accounting.config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+GROUP_TABLE="user_groups"
+GR="/bin/grep"
+
+CONFIG="accounting_config"
+DIR=$(dirname $0)
+if [ -x "$DIR/$CONFIG" ];then
+ . "$DIR/$CONFIG"
+else
+	echo "Missing $DIR/$CONFIG"
+	exit 2
+fi
+
+if [ "$1" != "" ];then
+	echo "Updating firewall"
+	$IPT -D group_${1} -t mangle -j DROP &> /dev/null
+else
+	echo "Missing parameter"
+	exit 1;
+fi

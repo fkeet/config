@@ -1,0 +1,36 @@
+#!/bin/bash
+
+SOURCE="$(dirname $0)/accounting_config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+MONTHLY=0;BREAKDOWN=0;FIRST=1;
+DATE="";HOST="";DETAIL=0;
+
+FACTOR=1000000
+TOTAL_IN="format(traffic.traffic_in/$FACTOR,0) Traffic_in"
+TOTAL_OUT="format(traffic.traffic_out/$FACTOR,0) Traffic_out"
+TOTAL="format(traffic.traffic_out/$FACTOR+traffic.traffic_in/$FACTOR,0) Total"
+IN="format(traffic.traffic_in/$FACTOR,0) Traffic_in"
+OUT="format(traffic.traffic_out/$FACTOR,0) Traffic_out"
+HOST="$MAC_TABLE.hostname Workstation_name"
+GROUP="$MAC_TABLE.group_id Station_group"
+GROUP_NAME="$GROUP_TABLE.group_name Group_name"
+DAY="date($TRAFFIC_TABLE.date) Date"
+USERID="macs.number"
+USERNUMBER="traffic.user_id"
+
+PORTS_FILE="$(dirname $0)/port_groups"
+if [ ! -f "$PORTS_FILE" ];then exit 1;fi;
+for group in `echo "select distinct group_id from $GROUP_TABLE"|$SQL|$GR -v group_id`;do
+	echo "#########################"
+	group_name=`echo "select group_name from $GROUP_TABLE where group_id=$group"|$SQL|grep -v group_name`
+	echo "$group_name"
+	echo "#########################"
+	if [ "$1" != "" ];then
+		echo "select $DAY,$HOST,$TOTAL_IN,$TOTAL_OUT,$TOTAL from $TRAFFIC_TABLE join $MAC_TABLE join $GROUP_TABLE where $USERID=$USERNUMBER and $MAC_TABLE.group_id=$group and group_name='${group_name}' and month(date)='${1}'"|$SQL|column -t
+		echo "select format(sum(traffic.traffic_in)/$FACTOR,0) Traffic_in,format(sum(traffic.traffic_out)/$FACTOR,0) Traffic_out,format(sum(traffic.traffic_out)/$FACTOR+sum(traffic.traffic_in)/$FACTOR,0) Total from $TRAFFIC_TABLE join $MAC_TABLE where $group=$MAC_TABLE.group_id and group_id=$group and month(date)='${1}'"|$SQL|column -t
+	else
+		echo "select $DAY,$HOST,$TOTAL_IN,$TOTAL_OUT,$TOTAL from $TRAFFIC_TABLE join $MAC_TABLE join $GROUP_TABLE where $USERID=$USERNUMBER and $MAC_TABLE.group_id=$group and group_name='${group_name}'"|$SQL|column -t
+		echo "select format(sum(traffic.traffic_in)/$FACTOR,0) Traffic_in,format(sum(traffic.traffic_out)/$FACTOR,0) Traffic_out,format(sum(traffic.traffic_out)/$FACTOR+sum(traffic.traffic_in)/$FACTOR,0) Total from $TRAFFIC_TABLE join $MAC_TABLE where $group=$MAC_TABLE.group_id and group_name='$group_name'"|$SQL|column -t
+	fi
+	echo
+done

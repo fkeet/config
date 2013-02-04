@@ -1,0 +1,22 @@
+#!/bin/bash
+SOURCE="/root/scripts/accounting.config"
+[ -f "$SOURCE" ] && . "$SOURCE"
+GROUP_TABLE="user_groups"
+GR="/bin/grep"
+
+#***********
+#Exit codes:
+#1:missing parameters
+#***********
+
+if [ -n "$1" ];then
+				case "$1" in
+								-l)
+												echo "select group_name Group_name from $GROUP_TABLE"|$SQL
+								;;
+				esac
+				echo "delete from $GROUP_TABLE where group_name='$1';"|$SQL 2>&1 |$GR 1062 &>/dev/null && if [ $? -eq 0 ];then echo "There appears to already be such a group. Try another name or remove this one first";fi
+else
+	echo "Usage: $(basename $0) <group_name>"
+	exit 1
+fi
