@@ -55,7 +55,7 @@ fi
 
 delimiting_line='_______________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________'
 if [ "$color_prompt" = yes ]; then
-    PS1='${delimiting_line:1:$COLUMNS}${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\[\033[01;37m\]`__git_ps1`\[\033[00m\]\$ '
+    PS1='\[\033[03;32m\]${delimiting_line:1:$COLUMNS}\[\033[00m\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\[\033[01;37m\]`__git_ps1`\[\033[00m\]\$ '
 else
     PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 fi
@@ -110,7 +110,7 @@ fi
 export GREP_OPTIONS="-rIi --color --exclude-dir=\.{bzr,git,hg,svn} --exclude-dir={build,dist} --exclude=tags"
 export PROMPT_COMMAND='history -a;history -r'
 export TERM=xterm-256color
-/usr/bin/xmodmap -e 'clear lock' -e 'keycode 9 = Caps_Lock' -e 'keycode 66 = Escape'
-set -o vi
+/usr/bin/xmodmap ~/.keymaps
+# set -o vi
 export PATH=$PATH:/home/fred/scripts:/home/fred/google_appengine/
-export PYTHONPATH=/home/fred/google_appengine/lib:/home/fred/google_appengine:/home/fred/src/services/:/home/fred/src/nudge
+export PYTHONPATH=/home/fred/google_appengine/lib:/home/fred/google_appengine:/home/fred/src/cyclone/:/home/fred/src/nudge
