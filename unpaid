@@ -1,0 +1,77 @@
+#!/bin/bash
+#Wrapper script to ease admin of users
+
+HEADER="/root/scripts/scriptheader"
+AC="/root/scripts/acon"
+FULL_LIST="/root/lists/full_access"
+CLASSFILE="/etc/dhcp3/dhcpd.classes"
+FOUNDIT=0;
+MAC=""
+if [ -f $HEADER ];then
+	. $HEADER
+else
+	echo "Missing header"
+	exit 3;
+fi
+
+UA="/root/scripts/unauth"
+CLASS="unpaid"
+
+#
+## Functions
+#
+
+# Move a user to the given class in DHCP
+# Parameters:
+# $1 Username
+function dodhcpd(){
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Updating dhcpd.classes${R}";fi
+	if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Finding MAC for ${1}${R}";fi
+	MAC=`gathermacs mac $1`
+	if [ ! $MAC ];then
+		if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Can't find MAC for ${1}. Trying ${1}.lan${R}";fi
+		MAC=`gathermacs mac ${1}.lan`;
+	fi
+	if [ ! "$MAC" ] && [ "$3" ];then
+		$EC "Can't find a MAC from the network or database. Using the one you gave me."
+		MAC="$3"
+		if [ "$MAC" == "" ];then
+			$EC "Empty MAC!"
+		fi
+	fi
+
+	#We now have a MAC.
+	if [ $MAC ];then
+		$EC $MAC|$GR [[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]]\:[[:alnum:]][[:alnum:]] &> /dev/null
+		if [ $? -eq 0 ];then
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Found MAC for ${1}${R}";fi
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Changing $1 to legal entry in ${CLASSFILE}${R}";fi
+			$GR -v 1:${MAC} $CLASSFILE > /tmp/tmp.dhcp
+			$EC "subclass \"${CLASS}\" 1:${MAC};" >> /tmp/tmp.dhcp
+			$MV -f /tmp/tmp.dhcp $CLASSFILE
+			if [ $isVerbose -eq 1 ];then $EC $EC_PARM "${S_INFO}Restarting dhcpd with new dhcpd.classes${R}";fi
+			#/etc/init.d/dhcp3-server restart #/etc/init.d/dhcpd restart
+      restart_dhcp_server
+		else
+			$EC "E1:	Bad MAC format ($MAC)"
+		fi
+	else
+		$EC "No MAC for ${1} found."
+	fi
+}
+
+# Restart DHCP server
+function restart_dhcp_server(){
+    /etc/init.d/isc-dhcp-server restart
+}
+
+#
+### Start of script
+#
+
+# Unauth the person. This takes it out of the firewall and removes it from the
+# dhcp classes thus defaulting to the unknown hosts ip range
+$UA $@
+
+# Add user to correct dhcp class
+dodhcpd $@
