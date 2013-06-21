@@ -23,8 +23,9 @@
 
 		<div id="left">
 			<b>O</b>ur records show that your account is in arrears<br/>
-			Please contact Johan on 0827804109 for further details.<br/>
-			You can also email Johan at <a href="mailto:joe@fns.co.za">joe@fns.co.za</a>.
+			Please contact Accounts Department on 0861 35274638 for further details.<br/>
+			You can also email Flashnet Accounts at <a href="mailto:accounts@flashnet.co.za">accounts@flashnet.co.za.<br/>
+			Once payment is made please send an SMS with your account number to 076 708 5147 for quick re-activation. </a>.
 		</div>
 		<div id="footer">
 			<div id="breadcrumbs">

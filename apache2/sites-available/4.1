@@ -1,4 +1,4 @@
-<VirtualHost 192.168.4.5>
+<VirtualHost 192.168.4.5:80>
         ErrorDocument 404 /index.php
         ServerAdmin fred@rems2.com
         DocumentRoot /var/www/unpaid/
@@ -8,7 +8,7 @@
                 Order allow,deny
                 Allow from all
         </directory>
-        ServerName akademia.fns.co.za
+        ServerName 192.168.4.5
         ErrorLog /var/www/unpaid/logs/error_log
         TransferLog /var/www/unpaid/logs/access_log
 </VirtualHost>
