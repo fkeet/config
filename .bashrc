@@ -2,6 +2,18 @@
 # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
 # for examples
 
+function git_branch {
+    branch=`__git_ps1`
+
+    echo `git status` | grep "nothing to commit" > /dev/null 2>&1
+    if [ "$?" -eq "0" ]; then
+        echo "$Green$branch"
+    else
+        echo "$IRed$branch"
+    fi
+}
+
+
 #  SETUP CONSTANTS
 #  Bunch-o-predefined colors.  Makes reading code easier than escape sequences.
 #  http://mediadoneright.com/content/ultimate-git-ps1-bash-prompt
@@ -131,18 +143,7 @@ if [ -n "$force_color_prompt" ]; then
 fi
 
 delimiting_line='_______________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________'
-function git_branch {
-    branch=`__git_ps1`
-
-    echo `git status` | grep "nothing to commit" > /dev/null 2>&1
-    if [ "$?" -eq "0" ]; then
-        git_branch="$Green$branch"
-    else
-        git_branch="$IRed$branch"
-    fi
-}
-
-PS1="$Green${delimiting_line:1:$COLUMNS}$Reset${debian_chroot:+($debian_chroot)}$BGreen\u@\h$Reset:$BBlue\w$Reset${git_branch}${Reset}\$ "
+PS1="$Green${delimiting_line:1:$COLUMNS}$Reset${debian_chroot:+($debian_chroot)}$BGreen\u@\h$Reset:$BBlue\w$Reset$( git_branch )${Reset}\$ "
 unset color_prompt force_color_prompt
 
 # If this is an xterm set the title to user@host:dir
