@@ -7,6 +7,7 @@ function git_branch {
 
 
 
+
     if [ "$?" -eq "0" ]; then
         echo "$Green`__git_ps1`"
     else
