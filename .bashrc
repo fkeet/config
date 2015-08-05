@@ -5,7 +5,7 @@
 function git_branch {
     branch=`__git_ps1`
 
-    echo `git status` | grep "nothing to commit" > /dev/null 2>&1
+    git status | grep "nothing to commit" > /dev/null 2>&1
     if [ "$?" -eq "0" ]; then
         echo "$Green$branch"
     else
