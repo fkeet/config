@@ -3,7 +3,8 @@
 # for examples
 
 function git_branch {
-    git status | grep "nothing to commit" &> /dev/null
+    git status |tail -n1| grep "nothing to commit" &> /dev/null
+
     if [ "$?" -eq "0" ]; then
         echo "$Green`__git_ps1`"
     else
