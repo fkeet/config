@@ -131,14 +131,16 @@ if [ -n "$force_color_prompt" ]; then
 fi
 
 delimiting_line='_______________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________'
-git_branch=`__git_ps1`
+function git_branch {
+    branch=`__git_ps1`
 
-echo `git status` | grep "nothing to commit" > /dev/null 2>&1
-if [ "$?" -eq "0" ]; then
-    git_branch="$Green$git_branch"
-else
-    git_branch="$IRed$git_branch"
-fi
+    echo `git status` | grep "nothing to commit" > /dev/null 2>&1
+    if [ "$?" -eq "0" ]; then
+        git_branch="$Green$branch"
+    else
+        git_branch="$IRed$branch"
+    fi
+}
 
 PS1="$Green${delimiting_line:1:$COLUMNS}$Reset${debian_chroot:+($debian_chroot)}$BGreen\u@\h$Reset:$BBlue\w$Reset${git_branch}${Reset}\$ "
 unset color_prompt force_color_prompt
@@ -197,6 +199,5 @@ export GREP_OPTIONS="-rIi --color --exclude-dir=\.{bzr,git,hg,svn} --exclude-dir
 export PROMPT_COMMAND='history -a;history -r'
 export TERM=xterm-256color
 /usr/bin/xmodmap ~/.keymaps
-# set -o vi
 export PATH=$PATH:/home/fred/scripts:/home/fred/google_appengine/
 export PYTHONPATH=/home/fred/google_appengine/lib:/home/fred/google_appengine:/home/fred/src/cyclone/:/home/fred/src/nudge
