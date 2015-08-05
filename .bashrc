@@ -3,13 +3,11 @@
 # for examples
 
 function git_branch {
-    branch=`__git_ps1`
-
-    git status | grep "nothing to commit" > /dev/null 2>&1
+    git status | grep "nothing to commit" &> /dev/null
     if [ "$?" -eq "0" ]; then
-        echo "$Green$branch"
+        echo "$Green`__git_ps1`"
     else
-        echo "$IRed$branch"
+        echo "$IRed`__git_ps1`"
     fi
 }
 
